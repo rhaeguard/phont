@@ -2,7 +2,7 @@ from fontTools.ttLib import TTFont
 import pyray as rl
 
 # Open the TTF file
-font = TTFont('./assets/EBGaramond-Regular.ttf')
+font = TTFont('./assets/EBGaramond/EBGaramond-Regular.ttf')
 
 # Access the glyf table
 glyf_table = font['glyf']

@@ -64,6 +64,7 @@ def segments(coords, flags):
                 # i is moved back because the last on-curve point we explored
                 # is actually a start point of the next curve
                 # TODO: this probably is causing issues for the inner detached section
+                # TODO: look at the winding contour data
                 i -= 1
                 break
             i += 1

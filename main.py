@@ -22,6 +22,54 @@ def find_char_width_height(coords) -> tuple[int, int]:
 
     return (x_max - x_min), (y_max - y_min)
 
+def segments(coords, flags):
+    i = 0
+    all_segments = []
+    while i < len(flags):
+        segment = []
+        while i < len(flags):
+            on_curve = flags[i] & 1
+            if on_curve and segment == []:
+                segment.append(coords[i])
+            elif not on_curve:
+                segment.append(coords[i])
+            elif on_curve and segment != []:
+                segment.append(coords[i])
+
+                # if there are more than 4 total points
+                # it indicates that we have at least 2 control points
+                # eg: [p1, c1, c2, p2]
+                # since true-type fonts use quadratic bezier curves
+                # the encoding basically skips the middle anchor point
+                # but it can be calculated as the midpoint between 2 control points
+                # 
+                # reference: https://stackoverflow.com/a/20772557/9985287
+                if len(segment) >= 4:
+                    # add the first two points
+                    enhanced_segment = [segment[0], segment[1]]
+
+                    for x in range(1, len(segment)-1):
+                        c1, c2 = segment[x], segment[x+1]
+                        pnx = (c1[0] + c2[0]) // 2
+                        pny = (c1[1] + c2[1]) // 2
+                        pn = (pnx, pny)
+                        # add the midpoint and the next point
+                        enhanced_segment.append(pn)
+                        enhanced_segment.append(c2)
+                    # add the last point to the segment
+                    enhanced_segment.append(segment[-1])
+                else:
+                    enhanced_segment = segment
+                all_segments.append(enhanced_segment)
+                # i is moved back because the last on-curve point we explored
+                # is actually a start point of the next curve
+                # TODO: this probably is causing issues for the inner detached section
+                i -= 1
+                break
+            i += 1
+        i += 1
+    return all_segments
+
 if __name__ == "__main__":
     rl.init_window(0, 0, "font-rendering")
     rl.set_target_fps(15)
@@ -36,11 +84,12 @@ if __name__ == "__main__":
         prev_keycode = keycode
 
         glyph = glyf_table[key].__dict__
-        
-        main_coords = glyph['coordinates']
-        # create pair of coordinates to draw lines between
-        pairs = zip(main_coords, main_coords[1:] + [main_coords[0]])
 
+        main_coords = list(glyph['coordinates'])
+        main_flags = list(glyph['flags'])
+
+        all_segments = segments(main_coords+[main_coords[0]], main_flags + [main_flags[0]])
+        
         rl.begin_drawing()
         rl.clear_background(rl.BLACK)
 
@@ -50,19 +99,24 @@ if __name__ == "__main__":
         translate_x = rl.get_screen_width() // 2 - font_width // (scaling_factor * 2)
         translate_y = rl.get_screen_height() // 2 + font_height // (scaling_factor * 2)
 
-        # this is a very simple rendering technique
-        # just draws a straight line from one point to another
-        for p1, p2 in pairs:
+        def transform(pair):
+            p1x, p1y = pair
+            x, y = translate_x + p1x//scaling_factor, translate_y-p1y//scaling_factor
+            return rl.Vector2(x, y)
 
-            p1x, p1y = p1
-            p2x, p2y = p2
-
-            rl.draw_line(
-                translate_x + p1x//scaling_factor, translate_y-p1y//scaling_factor,
-                translate_x + p2x//scaling_factor, translate_y-p2y//scaling_factor,
-                rl.WHITE
-            )
-
-
+        for segment in all_segments:
+            if len(segment) == 2:
+                pts = list(map(transform, segment))
+                s, e = pts
+                rl.draw_line_v(
+                    s, e, rl.WHITE
+                )
+            else:
+                pts = list(map(transform, segment))
+                point_count = len(pts)
+                rl.draw_spline_bezier_quadratic(
+                    pts, point_count, 1.5, rl.WHITE
+                )
+            
         rl.end_drawing()
     rl.close_window()

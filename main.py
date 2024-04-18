@@ -136,11 +136,8 @@ if __name__ == "__main__":
         glyph = glyf_table[key].__dict__
 
         all_segments = all_contour_segments(glyph)
-        
-        rl.begin_drawing()
-        rl.clear_background(rl.BLACK)
 
-        scaling_factor = 2
+        scaling_factor = 1.5
         font_width, font_height = find_char_width_height(glyph)
 
         translate_x = rl.get_screen_width() // 2 - font_width // (scaling_factor * 2)
@@ -150,6 +147,9 @@ if __name__ == "__main__":
             p1x, p1y = pair
             x, y = translate_x + p1x//scaling_factor, translate_y-p1y//scaling_factor
             return rl.Vector2(x, y)
+
+        rl.begin_drawing()
+        rl.clear_background(rl.BLACK)
 
         for segment in all_segments:
             if len(segment) == 2:

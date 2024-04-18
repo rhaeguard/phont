@@ -1,6 +1,6 @@
 # phont
 
-a very basic font rendering.
+A very basic True-Type Font rendering. Currently, the code is capable of rendering the outline of a glyph.
 
 <p align="center">
   <img src="./assets/screen_recording.gif" width=700 />
@@ -18,7 +18,7 @@ Use the main letter buttons to render different characters.
 
 ## todo??
 
-- [ ] incorporate bezier curves as well
+- [x] incorporate bezier curves as well
 - [ ] allow users to press buttons other than capital letters
 - [ ] read the font contents without a special library (`fonttools` in this case)
 - [ ] fill the font outline

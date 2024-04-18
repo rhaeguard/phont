@@ -11,7 +11,7 @@ glyf_table = font['glyf']
 # close the font file
 font.close()
 
-def find_char_width_height(glyph) -> tuple[int, int]:
+def find_char_width_height(glyph) -> tuple[int, int, list[int, int, int, int]]:
     """
     required for translation
     """
@@ -26,7 +26,7 @@ def find_char_width_height(glyph) -> tuple[int, int]:
         y_min = min(y_min, y)
         y_max= max(y_max, y)
 
-    return (x_max - x_min), (y_max - y_min)
+    return (x_max - x_min), (y_max - y_min), [x_min, y_min, x_max, y_max]
 
 def segments(coords, flags) -> list[list[tuple[int, int]]]:
     """
@@ -126,6 +126,7 @@ if __name__ == "__main__":
     rl.toggle_fullscreen()
     
     prev_keycode = 65 # capital letter A
+    draw_bounding_box = False
 
     while not rl.window_should_close():
         keycode = rl.get_key_pressed()
@@ -137,8 +138,8 @@ if __name__ == "__main__":
 
         all_segments = all_contour_segments(glyph)
 
-        scaling_factor = 1.5
-        font_width, font_height = find_char_width_height(glyph)
+        scaling_factor = 2
+        font_width, font_height, boundaries = find_char_width_height(glyph)
 
         translate_x = rl.get_screen_width() // 2 - font_width // (scaling_factor * 2)
         translate_y = rl.get_screen_height() // 2 + font_height // (scaling_factor * 2)
@@ -150,6 +151,14 @@ if __name__ == "__main__":
 
         rl.begin_drawing()
         rl.clear_background(rl.BLACK)
+
+        if draw_bounding_box:
+            x_min, y_min, x_max, y_max = boundaries
+
+            minv = transform((x_min, y_min))
+            maxv = transform((x_max, y_max))
+
+            rl.draw_rectangle_lines(int(minv.x), int(maxv.y), font_width // scaling_factor, font_height // scaling_factor, rl.BLUE)
 
         for segment in all_segments:
             if len(segment) == 2:

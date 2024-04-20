@@ -19,9 +19,12 @@ Use the main letter buttons to render different characters.
 ## todo??
 
 - [x] incorporate bezier curves as well
-- [ ] allow users to press buttons other than capital letters
+- [x] allow users to press buttons other than capital letters
 - [ ] read the font contents without a special library (`fonttools` in this case)
 - [ ] fill the font outline
+- [ ] show a blinking cursor
+- [ ] allow more controls over the font size, color, etc.
+- [ ] maybe some camera effects?
 
 ## fonts used for experimenting
 

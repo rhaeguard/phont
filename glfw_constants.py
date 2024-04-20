@@ -214,7 +214,7 @@ GLFW_TO_GLYPH_NAME = {
         GLFW_KEY_7: "seven",
         GLFW_KEY_8: "eight",
         GLFW_KEY_9: "nine",
-        GLFW_KEY_SEMICOLON: "semicolon",
+        GLFW_KEY_SEMICOLON: "semicolon", # TODO: not rendered properly
     },
     SHIFT_PRESSED: {
         GLFW_KEY_SPACE: "space",
@@ -238,6 +238,6 @@ GLFW_TO_GLYPH_NAME = {
         GLFW_KEY_7: "ampersand",
         GLFW_KEY_8: "asterisk",
         GLFW_KEY_9: "parenleft",
-        GLFW_KEY_SEMICOLON: "semicolon",
+        GLFW_KEY_SEMICOLON: "colon",
     },
 }

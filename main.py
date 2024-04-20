@@ -20,7 +20,7 @@ class ProgramState:
     outline_segments: list[list[list[rl.Vector2]]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
-    user_inputs: list[str] = list("hello")
+    user_inputs: list[str] = []
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
@@ -147,6 +147,8 @@ def grab_user_input():
                 STATE.user_inputs.pop()
         elif keycode == GLFW_KEY_CAPS_LOCK:
             STATE.caps_lock_on = not STATE.caps_lock_on
+        elif keycode == GLFW_KEY_ENTER:
+            STATE.user_inputs.append("phont_newline")
         else:
             STATE.shift_pressed = rl.is_key_down(GLFW_KEY_LEFT_SHIFT) or rl.is_key_down(GLFW_KEY_RIGHT_SHIFT)
             if keycode in GLFW_TO_GLYPH_NAME[STATE.shift_pressed]:
@@ -182,6 +184,7 @@ def update_single_glyph(glyph, hmtx_for_key, global_translate_x, global_translat
         advance_width, _ = hmtx_for_key
         advance_width = advance_width // scaling_factor
         bounding_box = rl.Rectangle(-1, -1, advance_width, -1)
+        STATE.glyph_boundaries.append(bounding_box)
         return bounding_box
 
     font_width, font_height, boundaries = find_char_width_height(glyph)
@@ -209,15 +212,31 @@ def update():
     STATE.glyph_boundaries = []
 
     global_translate_x = 0
-    global_translate_y = int(rl.get_screen_height() * 0.75)
+    global_translate_y = int(rl.get_screen_height() * 0.13)
     total_width = 0
     
     for key in STATE.user_inputs:
+        if key == "phont_newline":
+            global_translate_x = 0
+            global_translate_y += int(rl.get_screen_height() * 0.13)
+            total_width = 0
+            continue
+        
         glyph = glyf_table[key].__dict__
         hmtx_for_key = hmtx.__dict__['metrics'][key]
         bounding_box = update_single_glyph(glyph, hmtx_for_key, global_translate_x, global_translate_y)
-        global_translate_x += bounding_box.width
         total_width += bounding_box.width
+        
+        if rl.get_screen_width() < total_width:
+            STATE.glyph_boundaries.pop(-1)
+            STATE.outline_segments.pop(-1)
+            total_width -= bounding_box.width
+            global_translate_x = 0
+            global_translate_y += int(rl.get_screen_height() * 0.13)
+            bounding_box = update_single_glyph(glyph, hmtx_for_key, global_translate_x, global_translate_y)
+            total_width = bounding_box.width
+        
+        global_translate_x += bounding_box.width
     
     if STATE.text_centered:
         left_padding = (rl.get_screen_width() - total_width) // 2

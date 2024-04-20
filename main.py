@@ -11,6 +11,29 @@ glyf_table = font['glyf']
 # close the font file
 font.close()
 
+def find_char_width_height_resized(glyph) -> tuple[int, int]:
+    """
+    required for translation
+    """
+    coords = list(glyph['coordinates'])
+
+    x_min, x_max = coords[0][0], coords[0][0]
+    y_min, y_max = coords[0][1], coords[0][1]
+    for x, y in coords:
+        x_min = min(x_min, x)
+        x_max= max(x_max, x)
+
+        y_min = min(y_min, y)
+        y_max= max(y_max, y)
+
+    w = x_max - x_min
+    h = y_max - y_min
+
+    r = w / h
+
+
+    return (x_max - x_min), (y_max - y_min)
+
 def find_char_width_height(glyph) -> tuple[int, int, list[int, int, int, int]]:
     """
     required for translation
@@ -126,7 +149,7 @@ if __name__ == "__main__":
     rl.toggle_fullscreen()
     
     prev_keycode = 65 # capital letter A
-    draw_bounding_box = False
+    draw_bounding_box = True
 
     while not rl.window_should_close():
         keycode = rl.get_key_pressed()
@@ -142,7 +165,8 @@ if __name__ == "__main__":
         font_width, font_height, boundaries = find_char_width_height(glyph)
 
         translate_x = rl.get_screen_width() // 2 - font_width // (scaling_factor * 2)
-        translate_y = rl.get_screen_height() // 2 + font_height // (scaling_factor * 2)
+        # translate_y = rl.get_screen_height() // 2 + font_height // (scaling_factor * 2)
+        translate_y = int(rl.get_screen_height() * 0.75)
 
         def transform(pair):
             p1x, p1y = pair
@@ -168,6 +192,8 @@ if __name__ == "__main__":
             else:
                 pts = list(map(transform, segment))
                 rl.draw_spline_bezier_quadratic(pts, 3, 1, rl.WHITE)
+
+        rl.draw_line(0, translate_y, rl.get_screen_width(), translate_y, rl.RED)
 
         rl.end_drawing()
         

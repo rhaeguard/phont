@@ -1,23 +1,29 @@
 from typing import Any
 from fontTools.ttLib import TTFont
 import pyray as rl
+from glfw_constants import *
 
 # Open the TTF file
 font = TTFont('./assets/EBGaramond/EBGaramond-Regular.ttf')
 
-# Access the glyf table
+# Access the glyph table
 glyf_table = font['glyf']
+# hmtx contains the advance width for characters that have no contour like space
+hmtx = font['hmtx']
 
 # close the font file
 font.close()
 
 class ProgramState:
-    prev_keycode = 65 # capital letter A
-    key = 'A'
-    draw_bounding_box = True
-    outline_segments: list[list[rl.Vector2]] = []
-    glyph_boundaries: rl.Rectangle
+    draw_bounding_box = False
+    draw_base_line = False
+    outline_segments: list[list[list[rl.Vector2]]] = []
+    glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
+    user_inputs: list[str] = list("hello")
+    text_centered: bool = False
+    shift_pressed: bool = False
+    caps_lock_on: bool = False
 
 STATE = ProgramState()
 
@@ -25,17 +31,8 @@ def find_char_width_height(glyph) -> tuple[int, int, list[int, int, int, int]]:
     """
     required for translation
     """
-    coords = list(glyph['coordinates'])
-
-    x_min, x_max = coords[0][0], coords[0][0]
-    y_min, y_max = coords[0][1], coords[0][1]
-    for x, y in coords:
-        x_min = min(x_min, x)
-        x_max= max(x_max, x)
-
-        y_min = min(y_min, y)
-        y_max= max(y_max, y)
-
+    x_min, x_max = glyph["xMin"], glyph["xMax"]
+    y_min, y_max = glyph["yMin"], glyph["yMax"]
     return (x_max - x_min), (y_max - y_min), [x_min, y_min, x_max, y_max]
 
 def segments(coords, flags) -> list[list[tuple[int, int]]]:
@@ -109,6 +106,17 @@ def segments(coords, flags) -> list[list[tuple[int, int]]]:
         i += 1
     return all_segments
 
+def handle_compound_glyphs(glyph: dict[str, Any]) -> list[list[tuple[int, int]]]:
+    all_components = glyph['components']
+
+    result:list[list[tuple[int, int]]] = []
+    for component in all_components:
+        glyph_name, transformation = component.getComponentInfo()
+        g = glyf_table[glyph_name].__dict__
+        result.extend(all_contour_segments(g))
+    
+    return result
+
 def all_contour_segments(glyph: dict[str, Any]) -> list[list[tuple[int, int]]]:
     coords = list(glyph['coordinates'])
     flags = list(glyph['flags'])
@@ -132,58 +140,116 @@ def all_contour_segments(glyph: dict[str, Any]) -> list[list[tuple[int, int]]]:
 
 def grab_user_input():
     keycode = rl.get_key_pressed()
-    keycode = keycode if keycode else STATE.prev_keycode
-    STATE.key = chr(keycode)
-    STATE.prev_keycode = keycode
+    if keycode:
+        if keycode == GLFW_KEY_BACKSPACE:
+            # it's backspace
+            if len(STATE.user_inputs) > 0:
+                STATE.user_inputs.pop()
+        elif keycode == GLFW_KEY_CAPS_LOCK:
+            STATE.caps_lock_on = not STATE.caps_lock_on
+        else:
+            STATE.shift_pressed = rl.is_key_down(GLFW_KEY_LEFT_SHIFT) or rl.is_key_down(GLFW_KEY_RIGHT_SHIFT)
+            if keycode in GLFW_TO_GLYPH_NAME[STATE.shift_pressed]:
+                STATE.user_inputs.append(GLFW_TO_GLYPH_NAME[STATE.shift_pressed][keycode])
+                return
+            
+            if keycode >= GLFW_KEY_A and keycode <= GLFW_KEY_Z:
+                # caps lock - shift - result
+                # True      - True  - lowercase
+                # True      - False - uppercase
+                # False     - True  - uppercase
+                # False     - False - lowercase
+                if STATE.caps_lock_on == STATE.shift_pressed:
+                    keycode += 32
+                    
+            if keycode not in NON_DRAWABLE_KEYS:
+                STATE.user_inputs.append(chr(keycode))
 
-def update():
-    glyph = glyf_table[STATE.key].__dict__
 
-    all_segments = all_contour_segments(glyph)
-
-    scaling_factor = 2
-    font_width, font_height, boundaries = find_char_width_height(glyph)
-
-    translate_x = rl.get_screen_width() // 2 - font_width // (scaling_factor * 2)
-    translate_y = int(rl.get_screen_height() * 0.75)
-
+def update_single_glyph(glyph, hmtx_for_key, global_translate_x, global_translate_y) -> rl.Rectangle:
+    scaling_factor = 8
+    
     def transform(pair) -> rl.Vector2:
         p1x, p1y = pair
-        x, y = translate_x + p1x//scaling_factor, translate_y-p1y//scaling_factor
+        x, y = global_translate_x + p1x//scaling_factor, global_translate_y-p1y//scaling_factor
         return rl.Vector2(x, y)
     
-    STATE.outline_segments = list(map(lambda s: list(map(transform, s)), all_segments))
+    if "components" in glyph:
+        all_segments = handle_compound_glyphs(glyph)
+    elif "coordinates" in glyph:
+        all_segments = all_contour_segments(glyph)
+    else:
+        advance_width, _ = hmtx_for_key
+        advance_width = advance_width // scaling_factor
+        bounding_box = rl.Rectangle(-1, -1, advance_width, -1)
+        return bounding_box
 
-    if STATE.draw_bounding_box:
-        x_min, y_min, x_max, y_max = boundaries
+    font_width, font_height, boundaries = find_char_width_height(glyph)
+    
+    STATE.outline_segments.append(list(map(lambda s: list(map(transform, s)), all_segments)))
 
-        minv = transform((x_min, y_min))
-        maxv = transform((x_max, y_max))
+    x_min, y_min, x_max, y_max = boundaries
 
-        STATE.glyph_boundaries = rl.Rectangle(
-            int(minv.x), int(maxv.y),
-            font_width // scaling_factor, font_height // scaling_factor
-        )
+    minv = transform((x_min, y_min))
+    maxv = transform((x_max, y_max))
 
-    STATE.base_y = translate_y
+    bounding_box = rl.Rectangle(
+        int(minv.x), int(maxv.y),
+        font_width // scaling_factor, font_height // scaling_factor
+    )
+
+    STATE.glyph_boundaries.append(bounding_box)
+
+    return bounding_box
+
+
+def update():
+    # clear the lists
+    STATE.outline_segments = []
+    STATE.glyph_boundaries = []
+
+    global_translate_x = 0
+    global_translate_y = int(rl.get_screen_height() * 0.75)
+    total_width = 0
+    
+    for key in STATE.user_inputs:
+        glyph = glyf_table[key].__dict__
+        hmtx_for_key = hmtx.__dict__['metrics'][key]
+        bounding_box = update_single_glyph(glyph, hmtx_for_key, global_translate_x, global_translate_y)
+        global_translate_x += bounding_box.width
+        total_width += bounding_box.width
+    
+    if STATE.text_centered:
+        left_padding = (rl.get_screen_width() - total_width) // 2
+        
+        for glyph_outline in STATE.outline_segments:
+            for segment in glyph_outline:
+                for v in segment:
+                    v.x += left_padding
+        
+        for bounding_box in STATE.glyph_boundaries:
+            bounding_box.x += left_padding
+
+    STATE.base_y = global_translate_y
 
 def render_glyph():
     rl.begin_drawing()
     rl.clear_background(rl.BLACK)
 
     if STATE.draw_bounding_box:
-        rl.draw_rectangle_lines_ex(STATE.glyph_boundaries, 1.0, rl.BLUE)
+        for gb in STATE.glyph_boundaries:
+            rl.draw_rectangle_lines_ex(gb, 1.0, rl.BLUE)
 
-    for segment in STATE.outline_segments:
-        if len(segment) == 2:
-            s, e = segment
-            rl.draw_line_v(s, e, rl.WHITE)
-        else:
-            rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
+    for outline_segment in STATE.outline_segments:
+        for segment in outline_segment:
+            if len(segment) == 2:
+                s, e = segment
+                rl.draw_line_v(s, e, rl.WHITE)
+            else:
+                rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
 
-
-    # draw the base
-    rl.draw_line(0, STATE.base_y, rl.get_screen_width(), STATE.base_y, rl.RED)
+    if STATE.draw_base_line:
+        rl.draw_line(0, STATE.base_y, rl.get_screen_width(), STATE.base_y, rl.RED)
     rl.end_drawing()
 
 if __name__ == "__main__":

@@ -11,28 +11,15 @@ glyf_table = font['glyf']
 # close the font file
 font.close()
 
-def find_char_width_height_resized(glyph) -> tuple[int, int]:
-    """
-    required for translation
-    """
-    coords = list(glyph['coordinates'])
+class ProgramState:
+    prev_keycode = 65 # capital letter A
+    key = 'A'
+    draw_bounding_box = True
+    outline_segments: list[list[rl.Vector2]] = []
+    glyph_boundaries: rl.Rectangle
+    base_y: int = -1
 
-    x_min, x_max = coords[0][0], coords[0][0]
-    y_min, y_max = coords[0][1], coords[0][1]
-    for x, y in coords:
-        x_min = min(x_min, x)
-        x_max= max(x_max, x)
-
-        y_min = min(y_min, y)
-        y_max= max(y_max, y)
-
-    w = x_max - x_min
-    h = y_max - y_min
-
-    r = w / h
-
-
-    return (x_max - x_min), (y_max - y_min)
+STATE = ProgramState()
 
 def find_char_width_height(glyph) -> tuple[int, int, list[int, int, int, int]]:
     """
@@ -143,58 +130,70 @@ def all_contour_segments(glyph: dict[str, Any]) -> list[list[tuple[int, int]]]:
         start = end+1
     return all_contours
 
+def grab_user_input():
+    keycode = rl.get_key_pressed()
+    keycode = keycode if keycode else STATE.prev_keycode
+    STATE.key = chr(keycode)
+    STATE.prev_keycode = keycode
+
+def update():
+    glyph = glyf_table[STATE.key].__dict__
+
+    all_segments = all_contour_segments(glyph)
+
+    scaling_factor = 2
+    font_width, font_height, boundaries = find_char_width_height(glyph)
+
+    translate_x = rl.get_screen_width() // 2 - font_width // (scaling_factor * 2)
+    translate_y = int(rl.get_screen_height() * 0.75)
+
+    def transform(pair) -> rl.Vector2:
+        p1x, p1y = pair
+        x, y = translate_x + p1x//scaling_factor, translate_y-p1y//scaling_factor
+        return rl.Vector2(x, y)
+    
+    STATE.outline_segments = list(map(lambda s: list(map(transform, s)), all_segments))
+
+    if STATE.draw_bounding_box:
+        x_min, y_min, x_max, y_max = boundaries
+
+        minv = transform((x_min, y_min))
+        maxv = transform((x_max, y_max))
+
+        STATE.glyph_boundaries = rl.Rectangle(
+            int(minv.x), int(maxv.y),
+            font_width // scaling_factor, font_height // scaling_factor
+        )
+
+    STATE.base_y = translate_y
+
+def render_glyph():
+    rl.begin_drawing()
+    rl.clear_background(rl.BLACK)
+
+    if STATE.draw_bounding_box:
+        rl.draw_rectangle_lines_ex(STATE.glyph_boundaries, 1.0, rl.BLUE)
+
+    for segment in STATE.outline_segments:
+        if len(segment) == 2:
+            s, e = segment
+            rl.draw_line_v(s, e, rl.WHITE)
+        else:
+            rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
+
+
+    # draw the base
+    rl.draw_line(0, STATE.base_y, rl.get_screen_width(), STATE.base_y, rl.RED)
+    rl.end_drawing()
+
 if __name__ == "__main__":
     rl.init_window(0, 0, "font-rendering")
     rl.set_target_fps(15)
     rl.toggle_fullscreen()
     
-    prev_keycode = 65 # capital letter A
-    draw_bounding_box = True
-
     while not rl.window_should_close():
-        keycode = rl.get_key_pressed()
-        keycode = keycode if keycode in range(65, 65+29) else prev_keycode
-        key = chr(keycode)
-        prev_keycode = keycode
-
-        glyph = glyf_table[key].__dict__
-
-        all_segments = all_contour_segments(glyph)
-
-        scaling_factor = 2
-        font_width, font_height, boundaries = find_char_width_height(glyph)
-
-        translate_x = rl.get_screen_width() // 2 - font_width // (scaling_factor * 2)
-        # translate_y = rl.get_screen_height() // 2 + font_height // (scaling_factor * 2)
-        translate_y = int(rl.get_screen_height() * 0.75)
-
-        def transform(pair):
-            p1x, p1y = pair
-            x, y = translate_x + p1x//scaling_factor, translate_y-p1y//scaling_factor
-            return rl.Vector2(x, y)
-
-        rl.begin_drawing()
-        rl.clear_background(rl.BLACK)
-
-        if draw_bounding_box:
-            x_min, y_min, x_max, y_max = boundaries
-
-            minv = transform((x_min, y_min))
-            maxv = transform((x_max, y_max))
-
-            rl.draw_rectangle_lines(int(minv.x), int(maxv.y), font_width // scaling_factor, font_height // scaling_factor, rl.BLUE)
-
-        for segment in all_segments:
-            if len(segment) == 2:
-                pts = list(map(transform, segment))
-                segment, e = pts
-                rl.draw_line_v(segment, e, rl.WHITE)
-            else:
-                pts = list(map(transform, segment))
-                rl.draw_spline_bezier_quadratic(pts, 3, 1, rl.WHITE)
-
-        rl.draw_line(0, translate_y, rl.get_screen_width(), translate_y, rl.RED)
-
-        rl.end_drawing()
+        grab_user_input()
+        update()
+        render_glyph()
         
     rl.close_window()

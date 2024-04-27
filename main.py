@@ -20,7 +20,7 @@ class ProgramState:
     outline_segments: list[list[list[rl.Vector2]]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
-    user_inputs: list[str] = []
+    user_inputs: list[str] = ['g']
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
@@ -169,7 +169,7 @@ def grab_user_input():
 
 
 def update_single_glyph(glyph, hmtx_for_key, global_translate_x, global_translate_y) -> rl.Rectangle:
-    scaling_factor = 8
+    scaling_factor = 2
     
     def transform(pair) -> rl.Vector2:
         p1x, p1y = pair
@@ -211,8 +211,8 @@ def update():
     STATE.outline_segments = []
     STATE.glyph_boundaries = []
 
-    global_translate_x = 0
-    global_translate_y = int(rl.get_screen_height() * 0.13)
+    global_translate_x = 100
+    global_translate_y = int(rl.get_screen_height() * 0.75)
     total_width = 0
     
     for key in STATE.user_inputs:
@@ -251,6 +251,8 @@ def update():
 
     STATE.base_y = global_translate_y
 
+from utils import *
+
 def render_glyph():
     rl.begin_drawing()
     rl.clear_background(rl.BLACK)
@@ -259,13 +261,38 @@ def render_glyph():
         for gb in STATE.glyph_boundaries:
             rl.draw_rectangle_lines_ex(gb, 1.0, rl.BLUE)
 
-    for outline_segment in STATE.outline_segments:
+    for oix, outline_segment in enumerate(STATE.outline_segments):
+        gb = STATE.glyph_boundaries[oix]
+        for ry in range(int(gb.y), int(gb.y + gb.height)):
+            for rx in range(int(gb.x), int(gb.x + gb.width)):
+                pixel = rl.Vector2(rx, ry)
+                inside = 0
+                for segment in outline_segment:
+                    points = segment
+                    if len(segment) == 2:
+                        points = [segment[0], segment[0], segment[1]]
+                    
+                    results, is_on_transition = check_if_intersects_bezier(*points, pixel)
+                    if results:
+                        if is_on_transition:
+                            inside -= 1
+                        else:
+                            inside += 1
+                if inside != 0:
+                    rl.draw_rectangle(int(pixel.x), int(pixel.y), 1, 1, rl.GREEN)
+        
         for segment in outline_segment:
             if len(segment) == 2:
                 s, e = segment
                 rl.draw_line_v(s, e, rl.WHITE)
             else:
-                rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
+                if check_if_on_transition(segment[0], segment[1], segment[1], segment[1]):
+                    rl.draw_spline_bezier_quadratic(segment, 3, 2, rl.RED)
+                else:
+                    rl.draw_spline_bezier_quadratic(segment, 3, 2, rl.WHITE)
+
+            rl.draw_circle_v(segment[0], 2, rl.BLUE)
+            rl.draw_circle_v(segment[-1], 2, rl.BLUE)
 
     if STATE.draw_base_line:
         rl.draw_line(0, STATE.base_y, rl.get_screen_width(), STATE.base_y, rl.RED)

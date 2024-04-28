@@ -23,7 +23,7 @@ class ProgramState:
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
-    user_inputs: list[str] = ['at']
+    user_inputs: list[str] = ['M']
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
@@ -315,7 +315,10 @@ def sign(value):
         return 0
     return -1 if value < 0 else 1
 
+from time import time
+
 def render_glyph():
+    start = time()
     rl.begin_drawing()
     rl.clear_background(rl.BLACK)
 
@@ -337,44 +340,53 @@ def render_glyph():
                     
                     res = check_if_intersects_bezier(*points, pixel)
                     for v in res:
-                        dots.append((v, points))
+                        dots.append((v, points, len(res)))
 
             dots.sort(key=lambda v: v[0].x)
+            
             i = 0
             is_odd = True
             while i < len(dots) - 1:
                 a, b = dots[i], dots[i+1]
-                pa, edge_a = a
-                pb, edge_b = b
+                pa, edge_a, num_intersect_a = a
+                pb, edge_b, num_intersect_b = b
 
                 if pa.x == pb.x:
                     result = set(filter(
                         lambda v: v != 0,
                         map(lambda v: sign(pa.y - v.y), [edge_a[0], edge_a[2], edge_b[0], edge_b[2]])
                     ))
-
-                    if len(result) == 2:
+                    if len(result) == 2 or (num_intersect_a == 2 or num_intersect_b == 2):
                         is_odd = not is_odd
 
                 if is_odd:
                     rl.draw_line_v(pa, pb, rl.GREEN)
 
+                def pront(inp):
+                    k, edge, _ = inp
+                    l = "".join(list(map(lambda z: f"[{round(z.x, ndigits=3)},{round(z.y, ndigits=3)}]", edge)))
+                    return f"{round(k.x, ndigits=3)} - {l}"
+
+                print(list(map(pront, [a, b])), "draw" if is_odd else "skip")
+
+                rl.draw_rectangle_v(pa, rl.Vector2(1,1), rl.MAGENTA)          
+                rl.draw_rectangle_v(pb, rl.Vector2(1,1), rl.MAGENTA)          
+
                 is_odd = not is_odd
                 i += 1
+            print("----")
         # draw the outline
         # for contour in contours:
             # for xx, segment in enumerate(contour.segment_vectors):
-                # if xx == 5 or xx == 6:
-                #     print(list(map(lambda v: f"[{v.x},{v.y}]", segment)))
-                # if len(segment) == 2:
-                #     s, e = segment
-                #     rl.draw_line_v(s, e, rl.PURPLE)
-                # else:
-                #     rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
-                #     pass
+                # if not (xx == 28 or xx == 29):
+                    # continue
+        #         if len(segment) == 2:
+        #             s, e = segment
+        #             rl.draw_line_v(s, e, rl.PURPLE)
+        #         else:
+        #             rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
 
                 # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
-                
                 # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
 
                 # rl.draw_rectangle_v(segment[0], rl.Vector2(1, 1), rl.BLUE)
@@ -385,7 +397,9 @@ def render_glyph():
 
                 # rl.draw_circle_v(segment[0], 2, rl.BLUE)
                 # rl.draw_circle_v(segment[-1], 2, rl.BLUE)
-            
+    total = time() - start
+
+    print(total)
 
     if STATE.draw_base_line:
         rl.draw_line(0, STATE.base_y, rl.get_screen_width(), STATE.base_y, rl.RED)

@@ -2,6 +2,7 @@ from typing import Any
 from fontTools.ttLib import TTFont
 import pyray as rl
 from glfw_constants import *
+from utils import *
 
 # Open the TTF file
 font = TTFont('./assets/EBGaramond/EBGaramond-Regular.ttf')
@@ -17,10 +18,12 @@ font.close()
 class ProgramState:
     draw_bounding_box = False
     draw_base_line = False
-    outline_segments: list[list[list[rl.Vector2]]] = []
+    draw_curve_points = True
+    scaling_factor = 1
+    outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
-    user_inputs: list[str] = ['g']
+    user_inputs: list[str] = ['at']
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
@@ -106,10 +109,10 @@ def segments(coords, flags) -> list[list[tuple[int, int]]]:
         i += 1
     return all_segments
 
-def handle_compound_glyphs(glyph: dict[str, Any]) -> list[list[tuple[int, int]]]:
+def handle_compound_glyphs(glyph: dict[str, Any]) -> list[GlyphContour]:
     all_components = glyph['components']
 
-    result:list[list[tuple[int, int]]] = []
+    result:list[GlyphContour] = []
     for component in all_components:
         glyph_name, transformation = component.getComponentInfo()
         g = glyf_table[glyph_name].__dict__
@@ -117,14 +120,14 @@ def handle_compound_glyphs(glyph: dict[str, Any]) -> list[list[tuple[int, int]]]
     
     return result
 
-def all_contour_segments(glyph: dict[str, Any]) -> list[list[tuple[int, int]]]:
+def all_contour_segments(glyph: dict[str, Any]) -> list[GlyphContour]:
     coords = list(glyph['coordinates'])
     flags = list(glyph['flags'])
     # endPtsOfContours contains indices that indicate the end of a contour
     # these are useful to extract out however many contours a particular glyph has
     end_of_contours = list(glyph['endPtsOfContours'])
 
-    all_contours = []
+    all_contours: list[GlyphContour] = []
     start = 0
     for end in end_of_contours:
         segment_coords = coords[start:end+1]
@@ -134,9 +137,13 @@ def all_contour_segments(glyph: dict[str, Any]) -> list[list[tuple[int, int]]]:
         segment_flags = segment_flags + [segment_flags[0]] # include the first entry to close the loop
         
         all_segments_in_contour = segments(segment_coords, segment_flags)
-        all_contours.extend(all_segments_in_contour)
+        contour = GlyphContour(
+            segments=all_segments_in_contour
+        )
+        all_contours.append(contour)
         start = end+1
     return all_contours
+
 
 def grab_user_input():
     keycode = rl.get_key_pressed()
@@ -167,19 +174,68 @@ def grab_user_input():
             if keycode not in NON_DRAWABLE_KEYS:
                 STATE.user_inputs.append(chr(keycode))
 
+"""
+public bool IsClockwise(IList<Vector> vertices)
+{
+    double sum = 0.0;
+    for (int i = 0; i < vertices.Count; i++) {
+        Vector v1 = vertices[i];
+        Vector v2 = vertices[(i + 1) % vertices.Count];
+        sum += (v2.X - v1.X) * (v2.Y + v1.Y);
+    }
+    return sum > 0.0;
+}
+"""
+
+def is_points_clockwise(points: list[rl.Vector2]):
+    if len(points) == 2:
+        p0, p1 = points
+        is_counter_clockwise = False
+        if p0.y >= p1.y:
+            if p0.y == p1.y:
+                is_counter_clockwise = p0.x > p1.x
+            else:
+                is_counter_clockwise = True
+        return not is_counter_clockwise
+
+    area = 0
+
+    for i in range(len(points)):
+        v1 = points[i]
+        v2 = points[(i+1) % len(points)]
+        area += (v2.x - v1.x) * (v2.y + v1.y)
+    
+    return area > 0
+
+def is_clockwise(curves: list[list[rl.Vector2]]):
+    points: list[rl.Vector2] = []
+    are_clockwise = []
+    for curve in curves:
+        points.append(curve[0])
+        is_cw = is_points_clockwise(curve)
+        are_clockwise.append(is_cw)
+    return is_points_clockwise(points), are_clockwise
+
 
 def update_single_glyph(glyph, hmtx_for_key, global_translate_x, global_translate_y) -> rl.Rectangle:
-    scaling_factor = 2
-    
-    def transform(pair) -> rl.Vector2:
+    scaling_factor = STATE.scaling_factor
+
+    def transform(pair: tuple[int, int]) -> rl.Vector2:
         p1x, p1y = pair
         x, y = global_translate_x + p1x//scaling_factor, global_translate_y-p1y//scaling_factor
         return rl.Vector2(x, y)
+
+    def transform_contour(contour: GlyphContour):
+        vs = list(map(lambda segment: list(map(transform, segment)), contour.segments))
+        contour.segment_vectors = vs
+        is_cw, are_clockwise = is_clockwise(vs)
+        contour.is_clockwise = is_cw
+        contour.segment_directions = are_clockwise
     
     if "components" in glyph:
-        all_segments = handle_compound_glyphs(glyph)
+        glyph_contours = handle_compound_glyphs(glyph)
     elif "coordinates" in glyph:
-        all_segments = all_contour_segments(glyph)
+        glyph_contours = all_contour_segments(glyph)
     else:
         advance_width, _ = hmtx_for_key
         advance_width = advance_width // scaling_factor
@@ -189,7 +245,10 @@ def update_single_glyph(glyph, hmtx_for_key, global_translate_x, global_translat
 
     font_width, font_height, boundaries = find_char_width_height(glyph)
     
-    STATE.outline_segments.append(list(map(lambda s: list(map(transform, s)), all_segments)))
+    for contour in glyph_contours:
+        transform_contour(contour)
+
+    STATE.outline_segments.append(glyph_contours)
 
     x_min, y_min, x_max, y_max = boundaries
 
@@ -212,7 +271,7 @@ def update():
     STATE.glyph_boundaries = []
 
     global_translate_x = 100
-    global_translate_y = int(rl.get_screen_height() * 0.75)
+    global_translate_y = int(rl.get_screen_height() * 0.80)
     total_width = 0
     
     for key in STATE.user_inputs:
@@ -238,20 +297,23 @@ def update():
         
         global_translate_x += bounding_box.width
     
-    if STATE.text_centered:
-        left_padding = (rl.get_screen_width() - total_width) // 2
+    # if STATE.text_centered:
+    #     left_padding = (rl.get_screen_width() - total_width) // 2
         
-        for glyph_outline in STATE.outline_segments:
-            for segment in glyph_outline:
-                for v in segment:
-                    v.x += left_padding
+    #     for glyph_outline in STATE.outline_segments:
+    #         for segment in glyph_outline:
+    #             for v in segment:
+    #                 v.x += left_padding
         
-        for bounding_box in STATE.glyph_boundaries:
-            bounding_box.x += left_padding
+    #     for bounding_box in STATE.glyph_boundaries:
+    #         bounding_box.x += left_padding
 
     STATE.base_y = global_translate_y
 
-from utils import *
+def sign(value):
+    if value == 0:
+        return 0
+    return -1 if value < 0 else 1
 
 def render_glyph():
     rl.begin_drawing()
@@ -261,38 +323,69 @@ def render_glyph():
         for gb in STATE.glyph_boundaries:
             rl.draw_rectangle_lines_ex(gb, 1.0, rl.BLUE)
 
-    for oix, outline_segment in enumerate(STATE.outline_segments):
-        gb = STATE.glyph_boundaries[oix]
+    for glyph_id, contours in enumerate(STATE.outline_segments):
+        gb = STATE.glyph_boundaries[glyph_id]
+
         for ry in range(int(gb.y), int(gb.y + gb.height)):
-            for rx in range(int(gb.x), int(gb.x + gb.width)):
-                pixel = rl.Vector2(rx, ry)
-                inside = 0
-                for segment in outline_segment:
+            pixel = rl.Vector2(gb.x, ry)
+            dots: list[tuple[rl.Vector2, list[rl.Vector2]]] = []
+            for contour in contours:
+                for segment in contour.segment_vectors:
                     points = segment
                     if len(segment) == 2:
                         points = [segment[0], segment[0], segment[1]]
                     
-                    results, is_on_transition = check_if_intersects_bezier(*points, pixel)
-                    if results:
-                        if is_on_transition:
-                            inside -= 1
-                        else:
-                            inside += 1
-                if inside != 0:
-                    rl.draw_rectangle(int(pixel.x), int(pixel.y), 1, 1, rl.GREEN)
-        
-        for segment in outline_segment:
-            if len(segment) == 2:
-                s, e = segment
-                rl.draw_line_v(s, e, rl.WHITE)
-            else:
-                if check_if_on_transition(segment[0], segment[1], segment[1], segment[1]):
-                    rl.draw_spline_bezier_quadratic(segment, 3, 2, rl.RED)
-                else:
-                    rl.draw_spline_bezier_quadratic(segment, 3, 2, rl.WHITE)
+                    res = check_if_intersects_bezier(*points, pixel)
+                    for v in res:
+                        dots.append((v, points))
 
-            rl.draw_circle_v(segment[0], 2, rl.BLUE)
-            rl.draw_circle_v(segment[-1], 2, rl.BLUE)
+            dots.sort(key=lambda v: v[0].x)
+            i = 0
+            is_odd = True
+            while i < len(dots) - 1:
+                a, b = dots[i], dots[i+1]
+                pa, edge_a = a
+                pb, edge_b = b
+
+                if pa.x == pb.x:
+                    result = set(filter(
+                        lambda v: v != 0,
+                        map(lambda v: sign(pa.y - v.y), [edge_a[0], edge_a[2], edge_b[0], edge_b[2]])
+                    ))
+
+                    if len(result) == 2:
+                        is_odd = not is_odd
+
+                if is_odd:
+                    rl.draw_line_v(pa, pb, rl.GREEN)
+
+                is_odd = not is_odd
+                i += 1
+        # draw the outline
+        # for contour in contours:
+            # for xx, segment in enumerate(contour.segment_vectors):
+                # if xx == 5 or xx == 6:
+                #     print(list(map(lambda v: f"[{v.x},{v.y}]", segment)))
+                # if len(segment) == 2:
+                #     s, e = segment
+                #     rl.draw_line_v(s, e, rl.PURPLE)
+                # else:
+                #     rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
+                #     pass
+
+                # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
+                
+                # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
+
+                # rl.draw_rectangle_v(segment[0], rl.Vector2(1, 1), rl.BLUE)
+                # rl.draw_rectangle_v(segment[-1], rl.Vector2(1, 1), rl.BLUE)
+
+                # rl.draw_text(f"{segment[0].y}", int(segment[0].x) - 10, int(segment[0].y), 4, rl.WHITE)
+                # rl.draw_text(f"{segment[-1].y}", int(segment[-1].x) - 10, int(segment[-1].y), 4, rl.WHITE)
+
+                # rl.draw_circle_v(segment[0], 2, rl.BLUE)
+                # rl.draw_circle_v(segment[-1], 2, rl.BLUE)
+            
 
     if STATE.draw_base_line:
         rl.draw_line(0, STATE.base_y, rl.get_screen_width(), STATE.base_y, rl.RED)
@@ -300,7 +393,7 @@ def render_glyph():
 
 if __name__ == "__main__":
     rl.init_window(0, 0, "font-rendering")
-    rl.set_target_fps(15)
+    rl.set_target_fps(5)
     rl.toggle_fullscreen()
     
     while not rl.window_should_close():

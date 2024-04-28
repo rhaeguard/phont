@@ -1,6 +1,16 @@
 import math
 import pyray as rl
 
+class GlyphContour:
+    def __init__(
+        self,
+        segments: list[list[tuple[int, int]]]
+    ) -> None:
+        self.segments = segments
+        self.is_clockwise = None
+        self.segment_vectors: list[list[rl.Vector2]] = []
+        self.segment_directions: list[bool] = [] # is clockwise?
+
 def check_if_intersects_line(
     p0: rl.Vector2, 
     p1: rl.Vector2, 
@@ -36,18 +46,28 @@ def check_if_intersects_bezier(
     p1: rl.Vector2, # control
     p2: rl.Vector2, 
     pixel: rl.Vector2,
-) -> int:  
+) -> list[rl.Vector2]:  
     # find t
     a = p0.y - 2*p1.y + p2.y
     b = 2*p1.y - 2*p0.y
     c = p0.y - pixel.y
 
     if a == 0:
-        return [], False
+        p0 = p0
+        p1 = p2
+        if p1.y - p0.y == 0:
+            return []
+        
+        t = (pixel.y - p0.y) / (p1.y - p0.y)
+        if t >= 0 and t <= 1:
+            x = t * p1.x + (1-t) * p0.x
+            if x >= pixel.x:
+                return [rl.Vector2(x, pixel.y)]
+        return []
 
     factor = b**2 - 4*a*c
     if factor < 0:
-        return [], False
+        return []
     
     factor = math.sqrt(factor)
 
@@ -71,25 +91,36 @@ def check_if_intersects_bezier(
         else:
             x2 = None
 
-    # if factor == 0:
-    #     count = 1
-
     if count == 1:
         x = x1 or x2
-        return [rl.Vector2(int(x), int(pixel.y))], check_if_on_transition(p0, p1, p2, pixel)
+        return [rl.Vector2(x, pixel.y)]
     
     if count == 2:
-        return [rl.Vector2(int(x1), int(pixel.y)), rl.Vector2(x2, int(pixel.y))], check_if_on_transition(p0, p1, p2, pixel)
+        if factor == 0:
+            return [rl.Vector2(x1, pixel.y)]
+        else:
+            return [rl.Vector2(x1, pixel.y), rl.Vector2(x2, pixel.y)]
     
-    return [], False
+    return []
 
-# if __name__ == "__main__":
-#     p0 = rl.Vector2(-4, 2)
-#     p2 = rl.Vector2(8, 0.5)
-#     p1 = rl.Vector2(-0.97, 6.22)
-#     pixel = rl.Vector2(0, 3)
-#     r = check_if_intersects_bezier(
-#         p0, p1, p2, pixel
-#     )
+if __name__ == "__main__":
+    """
+    ['[1028.0,516.0]', '[1030.0,510.0]', '[1030.0,504.0]']
+    ['[1030.0,504.0]', '[1030.0,498.0]', '[1030.0,492.0]']
+    """
+    p0 = rl.Vector2(1028.0,516.0)
+    p1 = rl.Vector2(1030.0,510.0)
+    p2 = rl.Vector2(1030.0,504.0)
+    pixel = rl.Vector2(1000, 508.7)
 
-#     print(r)
+    p0 = rl.Vector2(1030.0,504.0)
+    p1 = rl.Vector2(1030.0,498.0)
+    p2 = rl.Vector2(1030.0,492.0)
+    pixel = rl.Vector2(1000, 496.7)
+
+    r = check_if_intersects_bezier(
+        p0, p1, p2, pixel
+    )
+
+    for vv in r:
+        print(vv.x, vv.y)

@@ -11,12 +11,7 @@ class GlyphContour:
         self.segment_vectors: list[list[rl.Vector2]] = []
         self.segment_directions: list[bool] = [] # is clockwise?
 
-def check_if_intersects_line(
-    p0: rl.Vector2, 
-    p1: rl.Vector2, 
-    pixel: rl.Vector2,   
-) -> bool:
-    return False
+
 
 def check_if_on_transition(
     p0: rl.Vector2, 
@@ -41,6 +36,25 @@ def check_if_on_transition(
             is_counter_clockwise = True
     return is_counter_clockwise
 
+def check_if_intersects_line(
+    p0: rl.Vector2, 
+    p1: rl.Vector2, 
+    pixel: rl.Vector2,   
+) -> list[rl.Vector2]:
+    if p1.y - p0.y == 0:
+        if pixel.y == p1.y:
+            if p0.x > p1.x:
+                return [(p1, p0), None, None]
+            return [(p0, p1), None, None]
+        return []
+    
+    t = (pixel.y - p0.y) / (p1.y - p0.y)
+    if t >= 0 and t <= 1:
+        x = t * p1.x + (1-t) * p0.x
+        if x >= pixel.x:
+            return [rl.Vector2(x, pixel.y)]
+    return []
+
 def check_if_intersects_bezier(
     p0: rl.Vector2, 
     p1: rl.Vector2, # control
@@ -53,17 +67,7 @@ def check_if_intersects_bezier(
     c = p0.y - pixel.y
 
     if a == 0:
-        p0 = p0
-        p1 = p2
-        if p1.y - p0.y == 0:
-            return []
-        
-        t = (pixel.y - p0.y) / (p1.y - p0.y)
-        if t >= 0 and t <= 1:
-            x = t * p1.x + (1-t) * p0.x
-            if x >= pixel.x:
-                return [rl.Vector2(x, pixel.y)]
-        return []
+        return check_if_intersects_line(p0, p2, pixel)
 
     factor = b**2 - 4*a*c
     if factor < 0:
@@ -110,6 +114,10 @@ if __name__ == "__main__":
 
     ['[757.0,400.0]', '[756.0,389.0]', '[751.0,390.0]']
     ['[751.0,390.0]', '[746.0,390.0]', '[741.0,400.0]']
+
+    ['147.0 - [153.0,512.0][153.0,512.0][147.0,512.0]', '153.0 - [153.0,512.0][153.0,512.0][147.0,512.0]'] skip
+    ['280.0 - [280.0,464.0][280.0,464.0][394.0,464.0]', '394.0 - [280.0,464.0][280.0,464.0][394.0,464.0]'] skip
+    ['295.0 - [394.0,512.0][394.0,512.0][295.0,512.0]', '394.0 - [394.0,512.0][394.0,512.0][295.0,512.0]'] skip
     """
     p0 = rl.Vector2(1028.0,516.0)
     p1 = rl.Vector2(1030.0,510.0)
@@ -131,9 +139,17 @@ if __name__ == "__main__":
     p2 = rl.Vector2(751.0,390.0)
     pixel = rl.Vector2(700, 390)
 
+    p0 = rl.Vector2(280.0,464.0, 280.0,464.0, 394.0,464.0)
+    p1 = rl.Vector2(280.0,464.0)
+    p2 = rl.Vector2(394.0,464.0)
+    pixel = rl.Vector2(0, 464)
+
     r = check_if_intersects_bezier(
         p0, p1, p2, pixel
     )
 
     for vv in r:
-        print(vv.x, vv.y)
+        if vv is None:
+            print("None!")
+        else:
+            print(vv.x, vv.y)

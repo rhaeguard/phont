@@ -23,7 +23,7 @@ class ProgramState:
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
-    user_inputs: list[str] = ['M']
+    user_inputs: list[str] = ['t']
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
@@ -174,19 +174,6 @@ def grab_user_input():
             if keycode not in NON_DRAWABLE_KEYS:
                 STATE.user_inputs.append(chr(keycode))
 
-"""
-public bool IsClockwise(IList<Vector> vertices)
-{
-    double sum = 0.0;
-    for (int i = 0; i < vertices.Count; i++) {
-        Vector v1 = vertices[i];
-        Vector v2 = vertices[(i + 1) % vertices.Count];
-        sum += (v2.X - v1.X) * (v2.Y + v1.Y);
-    }
-    return sum > 0.0;
-}
-"""
-
 def is_points_clockwise(points: list[rl.Vector2]):
     if len(points) == 2:
         p0, p1 = points
@@ -296,17 +283,6 @@ def update():
             total_width = bounding_box.width
         
         global_translate_x += bounding_box.width
-    
-    # if STATE.text_centered:
-    #     left_padding = (rl.get_screen_width() - total_width) // 2
-        
-    #     for glyph_outline in STATE.outline_segments:
-    #         for segment in glyph_outline:
-    #             for v in segment:
-    #                 v.x += left_padding
-        
-    #     for bounding_box in STATE.glyph_boundaries:
-    #         bounding_box.x += left_padding
 
     STATE.base_y = global_translate_y
 
@@ -330,19 +306,36 @@ def render_glyph():
         gb = STATE.glyph_boundaries[glyph_id]
 
         for ry in range(int(gb.y), int(gb.y + gb.height)):
+            # if ry != 512:
+            #     continue
+
             pixel = rl.Vector2(gb.x, ry)
             dots: list[tuple[rl.Vector2, list[rl.Vector2]]] = []
+            dots_h: list[tuple[rl.Vector2, list[rl.Vector2]]] = []
             for contour in contours:
                 for segment in contour.segment_vectors:
-                    points = segment
                     if len(segment) == 2:
-                        points = [segment[0], segment[0], segment[1]]
+                        res = check_if_intersects_line(*segment, pixel)
+                    else:
+                        res = check_if_intersects_bezier(*segment, pixel)
                     
-                    res = check_if_intersects_bezier(*points, pixel)
-                    for v in res:
-                        dots.append((v, points, len(res)))
+                    if len(res) == 3:
+                        for v in res:
+                            if v is None: continue
+                            dots_h.append((v, segment, 1))
+                    else:
+                        for v in res:
+                            dots.append((v, segment, len(res)))
+            
+            dots.extend(dots_h)
 
-            dots.sort(key=lambda v: v[0].x)
+            def dots_key(data):
+                dot = data[0]
+                if isinstance(dot, tuple):
+                    return dot[0].x
+                return dot.x
+
+            dots.sort(key=dots_key)
             
             i = 0
             is_odd = True
@@ -351,40 +344,80 @@ def render_glyph():
                 pa, edge_a, num_intersect_a = a
                 pb, edge_b, num_intersect_b = b
 
+                if isinstance(pa, tuple):
+                    if isinstance(pb, tuple):
+                        rl.draw_line_v(pa[0], pb[1], rl.GREEN)
+                    else:
+                        rl.draw_line_v(pa[0], pb, rl.GREEN)
+                    i += 1
+                    continue
+
+                if isinstance(pb, tuple):
+                    rl.draw_line_v(pa, pb[1], rl.GREEN)
+                    i += 1
+                    continue
+ 
                 if pa.x == pb.x:
                     result = set(filter(
                         lambda v: v != 0,
-                        map(lambda v: sign(pa.y - v.y), [edge_a[0], edge_a[2], edge_b[0], edge_b[2]])
+                        map(lambda v: sign(pa.y - v.y), [edge_a[0], edge_a[-1], edge_b[0], edge_b[-1]])
                     ))
-                    if len(result) == 2 or (num_intersect_a == 2 or num_intersect_b == 2):
+                    # basically
+                    # if both curves are on the same side of the scanline -> count twice (odd -> even -> odd)
+                    # if each curve lies on different sides of the scanline -> count one (odd -> even)
+                    #   - having +1 intersections with the scanline automatically means that lines are not on the same side
+                    #   - otherwise we take the non-intersected points from edges, 
+                    #     take the distance from the intersection point and check if the values have the same sign or not
+                    #     having the same sign indicates that they are on the same side
+                    if len(result) == 2 or (num_intersect_a > 1 or num_intersect_b > 1):
                         is_odd = not is_odd
 
                 if is_odd:
                     rl.draw_line_v(pa, pb, rl.GREEN)
 
-                def pront(inp):
-                    k, edge, _ = inp
-                    l = "".join(list(map(lambda z: f"[{round(z.x, ndigits=3)},{round(z.y, ndigits=3)}]", edge)))
-                    return f"{round(k.x, ndigits=3)} - {l}"
+                # def pront(inp):
+                #     k, edge, _ = inp
+                #     l = "".join(list(map(lambda z: f"[{round(z.x, ndigits=3)},{round(z.y, ndigits=3)}]", edge)))
+                #     return f"{round(k.x, ndigits=3)} - {l}"
 
-                print(list(map(pront, [a, b])), "draw" if is_odd else "skip")
+                # print(list(map(pront, [a, b])), "draw" if is_odd else "skip")
 
-                rl.draw_rectangle_v(pa, rl.Vector2(1,1), rl.MAGENTA)          
-                rl.draw_rectangle_v(pb, rl.Vector2(1,1), rl.MAGENTA)          
+                # rl.draw_rectangle_v(pa, rl.Vector2(1,1), rl.MAGENTA)          
+                # rl.draw_rectangle_v(pb, rl.Vector2(1,1), rl.MAGENTA)          
 
                 is_odd = not is_odd
                 i += 1
             print("----")
+
+        i = 0
+        while i < len(dots_h) and False:
+            a, b = dots_h[i], dots_h[i+1]
+            pa, edge_a, num_intersect_a = a
+            pb, edge_b, num_intersect_b = b
+
+            rl.draw_line_v(pa, pb, rl.GREEN)
+
+            def pront(inp):
+                    k, edge, _ = inp
+                    l = "".join(list(map(lambda z: f"[{round(z.x, ndigits=3)},{round(z.y, ndigits=3)}]", edge)))
+                    return f"{round(k.x, ndigits=3)} - {l}"
+
+            print(list(map(pront, [a, b])))
+            
+            i += 2
+
         # draw the outline
-        # for contour in contours:
-            # for xx, segment in enumerate(contour.segment_vectors):
+        for contour in contours:
+            for xx, segment in enumerate(contour.segment_vectors):
                 # if not (xx == 28 or xx == 29):
                     # continue
-        #         if len(segment) == 2:
-        #             s, e = segment
-        #             rl.draw_line_v(s, e, rl.PURPLE)
+                if len(segment) == 2:
+                    s, e = segment
+                    # rl.draw_line_ex(s, e, 4, rl.PURPLE)
+                else:
+                    continue
         #         else:
-        #             rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
+                    rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
 
                 # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
                 # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
@@ -395,8 +428,8 @@ def render_glyph():
                 # rl.draw_text(f"{segment[0].y}", int(segment[0].x) - 10, int(segment[0].y), 4, rl.WHITE)
                 # rl.draw_text(f"{segment[-1].y}", int(segment[-1].x) - 10, int(segment[-1].y), 4, rl.WHITE)
 
-                # rl.draw_circle_v(segment[0], 2, rl.BLUE)
-                # rl.draw_circle_v(segment[-1], 2, rl.BLUE)
+                rl.draw_circle_v(segment[0], 2, rl.BLUE)
+                rl.draw_circle_v(segment[-1], 2, rl.BLUE)
     total = time() - start
 
     print(total)
@@ -407,7 +440,7 @@ def render_glyph():
 
 if __name__ == "__main__":
     rl.init_window(0, 0, "font-rendering")
-    rl.set_target_fps(5)
+    rl.set_target_fps(30)
     rl.toggle_fullscreen()
     
     while not rl.window_should_close():

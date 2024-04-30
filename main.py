@@ -19,7 +19,7 @@ class ProgramState:
     draw_bounding_box = False
     draw_base_line = False
     draw_curve_points = True
-    scaling_factor = 1
+    scaling_factor = 4
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
@@ -226,8 +226,9 @@ def update_single_glyph(glyph, hmtx_for_key, global_translate_x, global_translat
     else:
         advance_width, _ = hmtx_for_key
         advance_width = advance_width // scaling_factor
-        bounding_box = rl.Rectangle(-1, -1, advance_width, -1)
+        bounding_box = rl.Rectangle(1, 1, advance_width, 1)
         STATE.glyph_boundaries.append(bounding_box)
+        STATE.outline_segments.append([])
         return bounding_box
 
     font_width, font_height, boundaries = find_char_width_height(glyph)

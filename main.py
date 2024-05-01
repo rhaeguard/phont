@@ -23,7 +23,7 @@ class ProgramState:
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
-    user_inputs: list[str] = ['N']
+    user_inputs: list[str] = ['f']
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
@@ -452,7 +452,7 @@ def render_glyph():
         gb = STATE.glyph_boundaries[glyph_id]
 
         for ry in range(int(gb.y), int(gb.y + gb.height)):
-            if ry != 214 and False:
+            if ry != 514 and not False:
                 continue
 
             pixel = rl.Vector2(gb.x, ry)
@@ -492,20 +492,25 @@ def render_glyph():
                 if is_v2(pa) and not is_v2(pb):
                     hs, he = v4_to_v2s(pb)
                     rl.draw_line_v(pa, he, rl.GREEN)
-                    is_odd = True
+                    is_odd = False
                     i += 1
                     continue
                 elif not is_v2(pa) and not is_v2(pb):
-                    hs, _ = v4_to_v2s(pa)
-                    _, he = v4_to_v2s(pb)
-                    rl.draw_line_v(hs, he, rl.GREEN)
-                    is_odd = True
+                    ahs, ahe = v4_to_v2s(pa)
+                    bhs, bhe = v4_to_v2s(pb)
+
+                    if bhs.x <= ahe.x:
+                        rl.draw_line_v(ahs, bhe, rl.GREEN)
+                    else:
+                        rl.draw_line_v(ahs, ahe, rl.GREEN)
+                        rl.draw_line_v(bhs, bhe, rl.GREEN)
+                    is_odd = False
                     i += 1
                     continue
                 elif not is_v2(pa) and is_v2(pb):
                     hs, _ = v4_to_v2s(pa)
                     rl.draw_line_v(hs, pb, rl.GREEN)
-                    is_odd = True
+                    is_odd = False
                     i += 1
                     continue
 

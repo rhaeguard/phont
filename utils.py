@@ -12,30 +12,6 @@ class GlyphContour:
         self.segment_directions: list[bool] = [] # is clockwise?
 
 
-
-def check_if_on_transition(
-    p0: rl.Vector2, 
-    p1: rl.Vector2, # control
-    p2: rl.Vector2,
-    pixel: rl.Vector2,
-) -> bool:
-    """
-    it is counter-clockwise if:
-    - p0.y > p1.y
-    - if above is the same, p0.x > p1.x
-
-    it is clockwise if:
-    - p0.y < p1.y
-    - if above is the same, p0.x < p1.x
-    """
-    is_counter_clockwise = False
-    if p0.y >= p1.y:
-        if p0.y == p1.y:
-            is_counter_clockwise = p0.x > p1.x
-        else:
-            is_counter_clockwise = True
-    return is_counter_clockwise
-
 def check_if_intersects_line(
     p0: rl.Vector2, 
     p1: rl.Vector2, 
@@ -44,8 +20,8 @@ def check_if_intersects_line(
     if p1.y - p0.y == 0:
         if pixel.y == p1.y:
             if p0.x > p1.x:
-                return [(p1, p0), None, None]
-            return [(p0, p1), None, None]
+                return [rl.Vector4(p1.x, p1.y, p0.x, p0.y)]
+            return [rl.Vector4(p0.x, p0.y, p1.x, p1.y)]
         return []
     
     t = (pixel.y - p0.y) / (p1.y - p0.y)

@@ -24,7 +24,7 @@ class ProgramState:
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
-    user_inputs: list[str] = ['u']
+    user_inputs: list[str] = ['eight']
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
@@ -218,8 +218,18 @@ def is_clockwise(curves: list[list[rl.Vector2]]):
     return is_points_clockwise(points), are_clockwise
 
 
-def segment_key(data: list[rl.Vector2]):
+def segment_key_y(data: list[rl.Vector2]):
     return min(data, key=lambda v: v.y).y
+
+def should_skip_segment(data: list[rl.Vector2], pixel: rl.Vector2) -> bool:
+    y_min = data[0].y
+    y_max = data[0].y
+    x_max = data[0].x
+    for v in data:
+        y_min = min(y_min, v.y)
+        y_max = max(y_max, v.y)
+        x_max = max(x_max, v.x)
+    return y_min > pixel.y or y_max < pixel.y or x_max < pixel.x
 
 
 def update_single_glyph(
@@ -237,7 +247,6 @@ def update_single_glyph(
 
     def transform_contour(contour: GlyphContour):
         vs = list(map(lambda segment: list(map(transform, segment)), contour.segments))
-        vs.sort(key=segment_key)
         contour.segment_vectors = vs
         is_cw, are_clockwise = is_clockwise(vs)
         contour.is_clockwise = is_cw
@@ -350,12 +359,15 @@ def render_glyph():
         gb = STATE.glyph_boundaries[glyph_id]
 
         for ry in range(int(gb.y), int(gb.y + gb.height)):
+            if ry != 618 and False:
+                continue
+
             pixel = rl.Vector2(gb.x, ry)
             intersections = []
             horizontals = set()
             for contour in contours:
                 for segment in contour.segment_vectors:
-                    if segment_key(segment) > pixel.y:
+                    if should_skip_segment(segment, pixel):
                         # not of interest as there's no way of intersecting
                         continue
 
@@ -430,7 +442,7 @@ def render_glyph():
                 else:
                     pass
         #         else:
-        # rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
+                    # rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
 
         # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
         # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)

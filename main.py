@@ -20,11 +20,11 @@ class ProgramState:
     draw_bounding_box = False
     draw_base_line = False
     draw_curve_points = True
-    scaling_factor = 1
+    scaling_factor = 4
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
-    user_inputs: list[str] = ['eight']
+    user_inputs: list[str] = []
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
@@ -33,12 +33,18 @@ class ProgramState:
 STATE = ProgramState()
 
 
-def find_char_width_height(glyph) -> tuple[int, int, list[int, int, int, int]]:
+def find_char_width_height(glyph_contours: list[GlyphContour]) -> tuple[int, int, list[int, int, int, int]]:
     """
     required for translation
     """
-    x_min, x_max = glyph["xMin"], glyph["xMax"]
-    y_min, y_max = glyph["yMin"], glyph["yMax"]
+    x_min, x_max, y_min, y_max = float("Inf"), float("-Inf"), float("Inf"), float("-Inf")
+    for c in glyph_contours:
+        for segment in c.segments:
+            for v in segment:
+                x_min = min(x_min, v[0])
+                x_max = max(x_max, v[0])
+                y_min = min(y_min, v[1])
+                y_max = max(y_max, v[1])
     return (x_max - x_min), (y_max - y_min), [x_min, y_min, x_max, y_max]
 
 
@@ -264,7 +270,7 @@ def update_single_glyph(
         STATE.outline_segments.append([])
         return bounding_box
 
-    font_width, font_height, boundaries = find_char_width_height(glyph)
+    font_width, font_height, boundaries = find_char_width_height(glyph_contours)
 
     for contour in glyph_contours:
         transform_contour(contour)
@@ -359,7 +365,7 @@ def render_glyph():
         gb = STATE.glyph_boundaries[glyph_id]
 
         for ry in range(int(gb.y), int(gb.y + gb.height)):
-            if ry != 618 and False:
+            if ry != 788 and False:
                 continue
 
             pixel = rl.Vector2(gb.x, ry)
@@ -434,8 +440,6 @@ def render_glyph():
         # draw the outline
         for contour in contours:
             for xx, segment in enumerate(contour.segment_vectors):
-                # if not (xx == 28 or xx == 29):
-                # continue
                 if len(segment) == 2:
                     s, e = segment
                     # rl.draw_line_ex(s, e, 2, rl.PURPLE)
@@ -444,8 +448,8 @@ def render_glyph():
         #         else:
                     # rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
 
-        # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
-        # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
+                # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
+                # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
 
         # rl.draw_rectangle_v(segment[0], rl.Vector2(1, 1), rl.BLUE)
         # rl.draw_rectangle_v(segment[-1], rl.Vector2(1, 1), rl.BLUE)

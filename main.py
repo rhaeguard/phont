@@ -19,7 +19,8 @@ font.close()
 class ProgramState:
     draw_bounding_box = False
     draw_base_line = False
-    draw_curve_points = True
+    draw_outline = False
+    draw_filled_font = True
     scaling_factor = 4
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
@@ -160,8 +161,7 @@ def all_contour_segments(glyph: dict[str, Any]) -> list[GlyphContour]:
 
 
 def grab_user_input():
-    keycode = rl.get_key_pressed()
-    if keycode:
+    while (keycode := rl.get_key_pressed()) != 0:
         if keycode == GLFW_KEY_BACKSPACE:
             # it's backspace
             if len(STATE.user_inputs) > 0:
@@ -299,14 +299,14 @@ def update():
     STATE.outline_segments = []
     STATE.glyph_boundaries = []
 
-    global_translate_x = 100
-    global_translate_y = int(rl.get_screen_height() * 0.75)
+    global_translate_x = 0
+    global_translate_y = int(rl.get_screen_height() * 0.30)
     total_width = 0
 
     for key in STATE.user_inputs:
         if key == "phont_newline":
             global_translate_x = 0
-            global_translate_y += int(rl.get_screen_height() * 0.13)
+            global_translate_y += int(rl.get_screen_height() * 0.20)
             total_width = 0
             continue
 
@@ -322,7 +322,7 @@ def update():
             STATE.outline_segments.pop(-1)
             total_width -= bounding_box.width
             global_translate_x = 0
-            global_translate_y += int(rl.get_screen_height() * 0.13)
+            global_translate_y += int(rl.get_screen_height() * 0.20)
             bounding_box = update_single_glyph(
                 glyph, hmtx_for_key, global_translate_x, global_translate_y
             )
@@ -331,26 +331,6 @@ def update():
         global_translate_x += bounding_box.width
 
     STATE.base_y = global_translate_y
-
-
-def sign(value):
-    if value == 0:
-        return 0
-    return -1 if value < 0 else 1
-
-
-def v4_to_v2s(v4) -> tuple[rl.Vector2, rl.Vector2]:
-    return (rl.Vector2(v4.x, v4.y), rl.Vector2(v4.z, v4.w))
-
-
-def is_v2(v):
-    return "Vector2" in str(v)
-
-
-def v2_to_string(v) -> str:
-    if is_v2(v):
-        return f"({round(v.x, ndigits=3)}, {round(v.y, ndigits=3)})"
-    return f"({round(v.x, ndigits=3)}, {round(v.y, ndigits=3)}, {round(v.z, ndigits=3)}, {round(v.w, ndigits=3)})"
 
 
 def render_glyph():
@@ -364,102 +344,75 @@ def render_glyph():
     for glyph_id, contours in enumerate(STATE.outline_segments):
         gb = STATE.glyph_boundaries[glyph_id]
 
-        for ry in range(int(gb.y), int(gb.y + gb.height)):
-            if ry != 788 and False:
-                continue
-
-            pixel = rl.Vector2(gb.x, ry)
-            intersections = []
-            horizontals = set()
-            for contour in contours:
-                for segment in contour.segment_vectors:
-                    if should_skip_segment(segment, pixel):
-                        # not of interest as there's no way of intersecting
-                        continue
-
-                    if len(segment) == 2:
-                        # line
-                        res = check_if_intersects_line(*segment, pixel)
-                    else:
-                        # bezier curve
-                        res = check_if_intersects_bezier(*segment, pixel)
-
-                    for v in res:
-                        if v is None:
+        if STATE.draw_filled_font:
+            for ry in range(int(gb.y), int(gb.y + gb.height)):
+                pixel = rl.Vector2(gb.x, ry)
+                intersections = []
+                horizontals = set()
+                for contour in contours:
+                    for segment in contour.segment_vectors:
+                        if should_skip_segment(segment, pixel):
+                            # not of interest as there's no way of intersecting
                             continue
-                        if is_v2(v):
-                            intersections.append((v, segment, len(res)))
+
+                        if len(segment) == 2:
+                            # line
+                            res = check_if_intersects_line(*segment, pixel)
                         else:
-                            horizontals.add((v.x, v.z))
+                            # bezier curve
+                            res = check_if_intersects_bezier(*segment, pixel)
 
-            intersections.sort(key=lambda v: v[0].x)
+                        for v in res:
+                            if is_v2(v):
+                                intersections.append((v, segment, len(res)))
+                            else:
+                                horizontals.add((v.x, v.z))
 
-            # for isection in intersections:
-            #     zz = [v2_to_string(vx) for vx in isection[1]]
-            #     print(v2_to_string(isection[0]), zz, v2_to_string(pixel))
-            # print("====")
+                intersections.sort(key=lambda v: v[0].x)
 
-            is_odd = True
-            i = 0
-            while i < len(intersections) - 1:
-                a, b = intersections[i], intersections[i + 1]
-                pa, edge_a, num_intersect_a = a
-                pb, edge_b, num_intersect_b = b
+                is_odd = True
+                i = 0
+                while i < len(intersections) - 1:
+                    a, b = intersections[i], intersections[i + 1]
+                    pa, edge_a, num_intersect_a = a
+                    pb, edge_b, num_intersect_b = b
 
-                if pa.x == pb.x or (pa.x, pb.x) in horizontals:
-                    result = set(
-                        filter(
-                            lambda v: v != 0,
-                            map(
-                                lambda v: sign(pa.y - v.y),
-                                [edge_a[0], edge_a[-1], edge_b[0], edge_b[-1]],
-                            ),
+                    # treat horizontal intersections just as 
+                    # a stretched out point intersections
+                    if pa.x == pb.x or (pa.x, pb.x) in horizontals:
+                        result = set(
+                            filter(
+                                lambda v: v != 0,
+                                map(
+                                    lambda v: sign(pa.y - v.y),
+                                    [edge_a[0], edge_a[-1], edge_b[0], edge_b[-1]],
+                                ),
+                            )
                         )
-                    )
-                    # basically
-                    # if both curves are on the same side of the scanline -> count twice (odd -> even -> odd)
-                    # if each curve lies on different sides of the scanline -> count one (odd -> even)
-                    #   - having +1 intersections with the scanline automatically means that lines are not on the same side
-                    #   - otherwise we take the non-intersected points from edges,
-                    #     take the distance from the intersection point and check if the values have the same sign or not
-                    #     having the same sign indicates that they are on the same side
-                    if len(result) == 2 or (num_intersect_a > 1 or num_intersect_b > 1):
-                        is_odd = not is_odd
+                        # if both curves are on the same side of the scanline -> count twice (odd -> even -> odd)
+                        # if each curve lies on different sides of the scanline -> count one (odd -> even)
+                        #   - having +1 intersections with the scanline automatically means that lines are not on the same side
+                        #   - otherwise we take the non-intersected points from edges,
+                        #     take the distance from the intersection point and check if the values have the same sign or not
+                        #     having the same sign indicates that they are on the same side
+                        if len(result) == 2 or (num_intersect_a > 1 or num_intersect_b > 1):
+                            is_odd = not is_odd
 
-                if is_odd:
-                    rl.draw_line_v(pa, pb, rl.GREEN)
+                    if is_odd:
+                        rl.draw_line_v(pa, pb, rl.GREEN)
 
-                # print(list(map(pront, [a, b])), "draw" if is_odd else "skip")
-
-                # rl.draw_rectangle_v(pa, rl.Vector2(1,1), rl.MAGENTA)
-                # rl.draw_rectangle_v(pb, rl.Vector2(1,1), rl.MAGENTA)
-
-                is_odd = not is_odd
-                i += 1
+                    is_odd = not is_odd
+                    i += 1
 
         # draw the outline
-        for contour in contours:
-            for xx, segment in enumerate(contour.segment_vectors):
-                if len(segment) == 2:
-                    s, e = segment
-                    # rl.draw_line_ex(s, e, 2, rl.PURPLE)
-                else:
-                    pass
-        #         else:
-                    # rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
-
-                # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
-                # rl.draw_text(f"{xx}", int((segment[0].x + segment[-1].x) / 2) + 10, int((segment[0].y + segment[-1].y) / 2), 4, rl.WHITE)
-
-        # rl.draw_rectangle_v(segment[0], rl.Vector2(1, 1), rl.BLUE)
-        # rl.draw_rectangle_v(segment[-1], rl.Vector2(1, 1), rl.BLUE)
-
-                # rl.draw_text(f"{segment[0].y}", int(segment[0].x) - 10, int(segment[0].y), 4, rl.WHITE)
-                # rl.draw_text(f"{segment[-1].y}", int(segment[-1].x) - 10, int(segment[-1].y), 4, rl.WHITE)
-
-                # rl.draw_circle_v(segment[0], 2, rl.BLUE)
-                # rl.draw_circle_v(segment[-1], 2, rl.BLUE)
-
+        if STATE.draw_outline:
+            for contour in contours:
+                for segment in contour.segment_vectors:
+                    if len(segment) == 2:
+                        s, e = segment
+                        rl.draw_line_v(s, e, rl.WHITE)
+                    else:
+                        rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
 
     if STATE.draw_base_line:
         rl.draw_line(0, STATE.base_y, rl.get_screen_width(), STATE.base_y, rl.RED)

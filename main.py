@@ -20,11 +20,11 @@ class ProgramState:
     draw_bounding_box = False
     draw_base_line = False
     draw_curve_points = True
-    scaling_factor = 4
+    scaling_factor = 1
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
-    user_inputs: list[str] = []
+    user_inputs: list[str] = ['F']
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
@@ -285,7 +285,7 @@ def update():
     STATE.glyph_boundaries = []
 
     global_translate_x = 100
-    global_translate_y = int(rl.get_screen_height() * 0.20)
+    global_translate_y = int(rl.get_screen_height() * 0.75)
     total_width = 0
 
     for key in STATE.user_inputs:
@@ -350,6 +350,9 @@ def render_glyph():
         gb = STATE.glyph_boundaries[glyph_id]
 
         for ry in range(int(gb.y), int(gb.y + gb.height)):
+            if ry != 160 and False:
+                continue
+
             pixel = rl.Vector2(gb.x, ry)
             intersections = []
             for contour in contours:
@@ -371,6 +374,11 @@ def render_glyph():
                         intersections.append((v, segment, len(res)))
 
             intersections.sort(key=lambda v: v[0].x)
+
+            # for isection in intersections:
+            #     zz = [v2_to_string(vx) for vx in isection[1]]
+            #     print(v2_to_string(isection[0]), zz, v2_to_string(pixel))
+            # print("====")
 
             is_odd = True
             i = 0
@@ -398,9 +406,12 @@ def render_glyph():
                     i += 1
                     continue
                 elif not is_v2(pa) and is_v2(pb):
-                    hs, _ = v4_to_v2s(pa)
-                    rl.draw_line_v(hs, pb, rl.GREEN)
-                    is_odd = False
+                    hs, he = v4_to_v2s(pa)
+                    if he.x == pb.x:
+                        is_odd = True
+                    else:
+                        rl.draw_line_v(hs, pb, rl.GREEN)
+                        is_odd = False
                     i += 1
                     continue
 
@@ -442,7 +453,7 @@ def render_glyph():
                 # continue
                 if len(segment) == 2:
                     s, e = segment
-                    # rl.draw_line_ex(s, e, 4, rl.PURPLE)
+                    # rl.draw_line_ex(s, e, 2, rl.PURPLE)
                 else:
                     pass
         #         else:
@@ -454,11 +465,13 @@ def render_glyph():
         # rl.draw_rectangle_v(segment[0], rl.Vector2(1, 1), rl.BLUE)
         # rl.draw_rectangle_v(segment[-1], rl.Vector2(1, 1), rl.BLUE)
 
-        # rl.draw_text(f"{segment[0].y}", int(segment[0].x) - 10, int(segment[0].y), 4, rl.WHITE)
-        # rl.draw_text(f"{segment[-1].y}", int(segment[-1].x) - 10, int(segment[-1].y), 4, rl.WHITE)
+                # rl.draw_text(f"{segment[0].y}", int(segment[0].x) - 10, int(segment[0].y), 4, rl.WHITE)
+                # rl.draw_text(f"{segment[-1].y}", int(segment[-1].x) - 10, int(segment[-1].y), 4, rl.WHITE)
 
-        # rl.draw_circle_v(segment[0], 2, rl.BLUE)
-        # rl.draw_circle_v(segment[-1], 2, rl.BLUE)
+                # rl.draw_circle_v(segment[0], 2, rl.BLUE)
+                # rl.draw_circle_v(segment[-1], 2, rl.BLUE)
+
+
     if STATE.draw_base_line:
         rl.draw_line(0, STATE.base_y, rl.get_screen_width(), STATE.base_y, rl.RED)
     rl.end_drawing()

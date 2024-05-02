@@ -25,8 +25,8 @@ Use the main letter buttons to render different characters.
 - [ ] show a blinking cursor
 - [ ] allow more controls over the font size, color, etc.
 - [ ] better and more efficient/smart rendering algorithms:
--- [ ] Signed Distance Field
--- [ ] Improve the existing scanline conversion 
+   - [ ] Signed Distance Field
+   - [ ] Improve the existing scanline conversion 
 - [ ] maybe some camera effects?
 
 ## fonts used for experimenting

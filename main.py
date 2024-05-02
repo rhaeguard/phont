@@ -21,7 +21,7 @@ class ProgramState:
     draw_base_line = False
     draw_outline = False
     draw_filled_font = True
-    scaling_factor = 4
+    scaling_factor = 8
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1

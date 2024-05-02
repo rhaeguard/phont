@@ -1,9 +1,9 @@
 # phont
 
-A very basic True-Type Font rendering. Currently, the code is capable of rendering the outline of a glyph.
+A very basic True-Type Font rendering. Currently, the code is capable of rendering the outline of a glyph and fill the outline (for the most part).
 
 <p align="center">
-  <img src="./assets/screen_recording.gif" width=700 />
+  <img src="./assets/phont_screenshot.png" width=700 />
 </p>
 
 ## setup
@@ -21,7 +21,7 @@ Use the main letter buttons to render different characters.
 - [x] incorporate bezier curves as well
 - [x] allow users to press buttons other than capital letters
 - [ ] read the font contents without a special library (`fonttools` in this case)
-- [ ] fill the font outline
+- [x] fill the font outline
 - [ ] show a blinking cursor
 - [ ] allow more controls over the font size, color, etc.
 - [ ] maybe some camera effects?

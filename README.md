@@ -28,6 +28,7 @@ Use the main letter buttons to render different characters.
    - [ ] Signed Distance Field
    - [ ] Improve the existing scanline conversion 
 - [ ] maybe some camera effects?
+- [ ] ANTIALIASING!!
 
 ## fonts used for experimenting
 

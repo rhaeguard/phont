@@ -1,8 +1,10 @@
 from typing import Any
 from fontTools.ttLib import TTFont
 import pyray as rl
+from raylib import ffi
 from glfw_constants import *
 from utils import *
+from bezier import *
 
 # Open the TTF file
 font = TTFont("./assets/EBGaramond/EBGaramond-Regular.ttf")
@@ -19,16 +21,23 @@ font.close()
 class ProgramState:
     draw_bounding_box = False
     draw_base_line = False
-    draw_outline = False
-    draw_filled_font = True
+    draw_outline = not True
+    draw_filled_font = not True
     scaling_factor = 8
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
+    textures: list[rl.Texture] = []
     base_y: int = -1
     user_inputs: list[str] = []
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
+
+
+    def unload_textures(self):
+        for t in self.textures:
+            if t is not None:
+                rl.unload_texture(t)
 
 
 STATE = ProgramState()
@@ -193,40 +202,6 @@ def grab_user_input():
                 STATE.user_inputs.append(chr(keycode))
 
 
-def is_points_clockwise(points: list[rl.Vector2]):
-    if len(points) == 2:
-        p0, p1 = points
-        is_counter_clockwise = False
-        if p0.y >= p1.y:
-            if p0.y == p1.y:
-                is_counter_clockwise = p0.x > p1.x
-            else:
-                is_counter_clockwise = True
-        return not is_counter_clockwise
-
-    area = 0
-
-    for i in range(len(points)):
-        v1 = points[i]
-        v2 = points[(i + 1) % len(points)]
-        area += (v2.x - v1.x) * (v2.y + v1.y)
-
-    return area > 0
-
-
-def is_clockwise(curves: list[list[rl.Vector2]]):
-    points: list[rl.Vector2] = []
-    are_clockwise = []
-    for curve in curves:
-        points.append(curve[0])
-        is_cw = is_points_clockwise(curve)
-        are_clockwise.append(is_cw)
-    return is_points_clockwise(points), are_clockwise
-
-
-def segment_key_y(data: list[rl.Vector2]):
-    return min(data, key=lambda v: v.y).y
-
 def should_skip_segment(data: list[rl.Vector2], pixel: rl.Vector2) -> bool:
     y_min = data[0].y
     y_max = data[0].y
@@ -237,6 +212,27 @@ def should_skip_segment(data: list[rl.Vector2], pixel: rl.Vector2) -> bool:
         x_max = max(x_max, v.x)
     return y_min > pixel.y or y_max < pixel.y or x_max < pixel.x
 
+def generate_polylines(bezier_curves: list[list[rl.Vector2]]) -> list[rl.Vector2]:
+    polygon_vertices: list[rl.Vector2] = []
+    for curve in bezier_curves:
+        if len(curve) == 2:
+            polygon_vertices.extend(curve)
+        else:
+            curve_lines = produce_bezier_lines(*curve)
+            polygon_vertices.extend(curve_lines) 
+    
+    deduped = [polygon_vertices[0]]
+
+    for i, v in enumerate(polygon_vertices):
+        if i == 0:
+            continue
+        last = deduped[-1]
+        if v.x == last.x and v.y == last.y:
+            continue
+        else:
+            deduped.append(v)
+    
+    return deduped
 
 def update_single_glyph(
     glyph, hmtx_for_key, global_translate_x, global_translate_y
@@ -253,10 +249,7 @@ def update_single_glyph(
 
     def transform_contour(contour: GlyphContour):
         vs = list(map(lambda segment: list(map(transform, segment)), contour.segments))
-        contour.segment_vectors = vs
-        is_cw, are_clockwise = is_clockwise(vs)
-        contour.is_clockwise = is_cw
-        contour.segment_directions = are_clockwise
+        contour.polylines = generate_polylines(vs)
 
     if "components" in glyph:
         glyph_contours = handle_compound_glyphs(glyph)
@@ -267,6 +260,7 @@ def update_single_glyph(
         advance_width = advance_width // scaling_factor
         bounding_box = rl.Rectangle(1, 1, advance_width, 1)
         STATE.glyph_boundaries.append(bounding_box)
+        STATE.textures.append(None)
         STATE.outline_segments.append([])
         return bounding_box
 
@@ -291,6 +285,11 @@ def update_single_glyph(
 
     STATE.glyph_boundaries.append(bounding_box)
 
+    texture_img = rl.gen_image_color(int(bounding_box.width), int(bounding_box.height), rl.BLACK)
+    texture = rl.load_texture_from_image(texture_img)
+    rl.unload_image(texture_img)
+    STATE.textures.append(texture)
+
     return bounding_box
 
 
@@ -298,9 +297,11 @@ def update():
     # clear the lists
     STATE.outline_segments = []
     STATE.glyph_boundaries = []
+    STATE.unload_textures()
+    STATE.textures = []
 
     global_translate_x = 0
-    global_translate_y = int(rl.get_screen_height() * 0.30)
+    global_translate_y = int(rl.get_screen_height() * 0.20)
     total_width = 0
 
     for key in STATE.user_inputs:
@@ -320,6 +321,7 @@ def update():
         if rl.get_screen_width() < total_width:
             STATE.glyph_boundaries.pop(-1)
             STATE.outline_segments.pop(-1)
+            STATE.textures.pop(-1)
             total_width -= bounding_box.width
             global_translate_x = 0
             global_translate_y += int(rl.get_screen_height() * 0.20)
@@ -332,8 +334,7 @@ def update():
 
     STATE.base_y = global_translate_y
 
-
-def render_glyph():
+def render_glyph(shader):
     rl.begin_drawing()
     rl.clear_background(rl.BLACK)
 
@@ -341,81 +342,61 @@ def render_glyph():
         for gb in STATE.glyph_boundaries:
             rl.draw_rectangle_lines_ex(gb, 1.0, rl.BLUE)
 
+    polylines_location = rl.get_shader_location(shader, "polylines")
+    count_contour_location = rl.get_shader_location(shader, "count_contour")
+    count_polyline_location = rl.get_shader_location(shader, "count_polyline")
+    offset_location = rl.get_shader_location(shader, "offset")
+
     for glyph_id, contours in enumerate(STATE.outline_segments):
         gb = STATE.glyph_boundaries[glyph_id]
 
-        if STATE.draw_filled_font:
-            for ry in range(int(gb.y), int(gb.y + gb.height)):
-                pixel = rl.Vector2(gb.x, ry)
-                intersections = []
-                horizontals = set()
-                for contour in contours:
-                    for segment in contour.segment_vectors:
-                        if should_skip_segment(segment, pixel):
-                            # not of interest as there's no way of intersecting
-                            continue
+        rl.begin_shader_mode(shader)
 
-                        if len(segment) == 2:
-                            # line
-                            res = check_if_intersects_line(*segment, pixel)
-                        else:
-                            # bezier curve
-                            res = check_if_intersects_bezier(*segment, pixel)
+        len_contours_ref = ffi.new("int*")
+        len_contours_ref[0] = len(contours)
+        
+        polyline_max_count = max((len(c.polylines) for c in contours), default=-1) + 1
+        if polyline_max_count == 0:
+            continue
 
-                        for v in res:
-                            if is_v2(v):
-                                intersections.append((v, segment, len(res)))
-                            else:
-                                horizontals.add((v.x, v.z))
+        len_polyline_max_count_ref = ffi.new("int*")
+        len_polyline_max_count_ref[0] = polyline_max_count
 
-                intersections.sort(key=lambda v: v[0].x)
+        rl.set_shader_value(shader, offset_location, rl.Vector2(int(gb.x), int(gb.y)), rl.ShaderUniformDataType.SHADER_UNIFORM_VEC2)
+        rl.set_shader_value(shader, count_contour_location, len_contours_ref, rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
+        rl.set_shader_value(shader, count_polyline_location, len_polyline_max_count_ref, rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
 
-                is_odd = True
-                i = 0
-                while i < len(intersections) - 1:
-                    a, b = intersections[i], intersections[i + 1]
-                    pa, edge_a, num_intersect_a = a
-                    pb, edge_b, num_intersect_b = b
+        total_polylines = polyline_max_count * len(contours)
+        all_polylines = ffi.new(f"Vector2[{total_polylines}]")
+        i = 0
+        for contour in contours:
+            new_p = contour.polylines
+            remains = polyline_max_count - len(new_p) - 1
+            new_p = new_p + [new_p[0]] + ([rl.Vector2(int(-666), int(-666))] * remains)
+            for p in new_p:
+                all_polylines[i] = p
+                i+=1
 
-                    # treat horizontal intersections just as 
-                    # a stretched out point intersections
-                    if pa.x == pb.x or (pa.x, pb.x) in horizontals:
-                        result = set(
-                            filter(
-                                lambda v: v != 0,
-                                map(
-                                    lambda v: sign(pa.y - v.y),
-                                    [edge_a[0], edge_a[-1], edge_b[0], edge_b[-1]],
-                                ),
-                            )
-                        )
-                        # if both curves are on the same side of the scanline -> count twice (odd -> even -> odd)
-                        # if each curve lies on different sides of the scanline -> count one (odd -> even)
-                        #   - having +1 intersections with the scanline automatically means that lines are not on the same side
-                        #   - otherwise we take the non-intersected points from edges,
-                        #     take the distance from the intersection point and check if the values have the same sign or not
-                        #     having the same sign indicates that they are on the same side
-                        if len(result) == 2 or (num_intersect_a > 1 or num_intersect_b > 1):
-                            is_odd = not is_odd
+        rl.set_shader_value_v(shader, polylines_location, all_polylines, rl.ShaderUniformDataType.SHADER_UNIFORM_VEC2, len(all_polylines))
 
-                    if is_odd:
-                        rl.draw_line_v(pa, pb, rl.GREEN)
+        texture = STATE.textures[glyph_id]
+        rl.draw_texture(texture, int(gb.x), int(gb.y), rl.WHITE)
 
-                    is_odd = not is_odd
-                    i += 1
-
+        rl.end_shader_mode()
+                        
         # draw the outline
         if STATE.draw_outline:
             for contour in contours:
-                for segment in contour.segment_vectors:
-                    if len(segment) == 2:
-                        s, e = segment
-                        rl.draw_line_v(s, e, rl.WHITE)
-                    else:
-                        rl.draw_spline_bezier_quadratic(segment, 3, 1, rl.WHITE)
+                for pi in range(len(contour.polylines)-1):
+                    s, e = contour.polylines[pi], contour.polylines[pi+1]
+                    rl.draw_line_v(s, e, rl.GREEN)
+                    rl.draw_circle_v(s, 2, rl.WHITE)
+                    rl.draw_circle_v(e, 2, rl.WHITE)
+
 
     if STATE.draw_base_line:
         rl.draw_line(0, STATE.base_y, rl.get_screen_width(), STATE.base_y, rl.RED)
+    
     rl.end_drawing()
 
 
@@ -424,9 +405,11 @@ if __name__ == "__main__":
     rl.set_target_fps(30)
     rl.toggle_fullscreen()
 
+    shader = rl.load_shader(None, "shader.frag")
+
     while not rl.window_should_close():
         grab_user_input()
         update()
-        render_glyph()
+        render_glyph(shader)
 
     rl.close_window()

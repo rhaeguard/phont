@@ -7,9 +7,7 @@ class GlyphContour:
         segments: list[list[tuple[int, int]]]
     ) -> None:
         self.segments = segments
-        self.is_clockwise = None
-        self.segment_vectors: list[list[rl.Vector2]] = []
-        self.segment_directions: list[bool] = [] # is clockwise?
+        self.polylines: list[rl.Vector2] = []
 
 
 def check_if_intersects_line(

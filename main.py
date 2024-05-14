@@ -3,7 +3,6 @@ from fontTools.ttLib import TTFont
 import pyray as rl
 from raylib import ffi
 from glfw_constants import *
-from utils import *
 from bezier import *
 
 # Open the TTF file
@@ -17,12 +16,20 @@ hmtx = font["hmtx"]
 # close the font file
 font.close()
 
+class GlyphContour:
+    def __init__(
+        self,
+        segments: list[list[tuple[int, int]]]
+    ) -> None:
+        self.segments = segments
+        self.polylines: list[rl.Vector2] = []
+
 
 class ProgramState:
     draw_bounding_box = False
     draw_base_line = False
     draw_outline = not True
-    draw_filled_font = not True
+    draw_filled_font = True
     scaling_factor = 8
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
@@ -32,7 +39,6 @@ class ProgramState:
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
-
 
     def unload_textures(self):
         for t in self.textures:
@@ -350,39 +356,40 @@ def render_glyph(shader):
     for glyph_id, contours in enumerate(STATE.outline_segments):
         gb = STATE.glyph_boundaries[glyph_id]
 
-        rl.begin_shader_mode(shader)
+        if STATE.draw_filled_font:
+            len_contours_ref = ffi.new("int*")
+            len_contours_ref[0] = len(contours)
+            
+            polyline_max_count = max((len(c.polylines) for c in contours), default=-1) + 1 # +1 because we append the last element to the end of the list
+            if polyline_max_count == 0:
+                continue
 
-        len_contours_ref = ffi.new("int*")
-        len_contours_ref[0] = len(contours)
-        
-        polyline_max_count = max((len(c.polylines) for c in contours), default=-1) + 1
-        if polyline_max_count == 0:
-            continue
+            len_polyline_max_count_ref = ffi.new("int*")
+            len_polyline_max_count_ref[0] = polyline_max_count
 
-        len_polyline_max_count_ref = ffi.new("int*")
-        len_polyline_max_count_ref[0] = polyline_max_count
+            total_polylines = polyline_max_count * len(contours)
+            all_polylines = ffi.new(f"Vector2[{total_polylines}]")
+            i = 0
+            for contour in contours:
+                new_p = contour.polylines
+                remains = polyline_max_count - len(new_p) - 1
+                new_p = new_p + [new_p[0]] + ([rl.Vector2(int(-666), int(-666))] * remains)
+                for p in new_p:
+                    all_polylines[i] = p
+                    i+=1
 
-        rl.set_shader_value(shader, offset_location, rl.Vector2(int(gb.x), int(gb.y)), rl.ShaderUniformDataType.SHADER_UNIFORM_VEC2)
-        rl.set_shader_value(shader, count_contour_location, len_contours_ref, rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
-        rl.set_shader_value(shader, count_polyline_location, len_polyline_max_count_ref, rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
+            rl.set_shader_value(shader, offset_location, rl.Vector2(int(gb.x), int(gb.y)), rl.ShaderUniformDataType.SHADER_UNIFORM_VEC2)
+            rl.set_shader_value(shader, count_contour_location, len_contours_ref, rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
+            rl.set_shader_value(shader, count_polyline_location, len_polyline_max_count_ref, rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
+            rl.set_shader_value_v(shader, polylines_location, all_polylines, rl.ShaderUniformDataType.SHADER_UNIFORM_VEC2, len(all_polylines))
 
-        total_polylines = polyline_max_count * len(contours)
-        all_polylines = ffi.new(f"Vector2[{total_polylines}]")
-        i = 0
-        for contour in contours:
-            new_p = contour.polylines
-            remains = polyline_max_count - len(new_p) - 1
-            new_p = new_p + [new_p[0]] + ([rl.Vector2(int(-666), int(-666))] * remains)
-            for p in new_p:
-                all_polylines[i] = p
-                i+=1
+            texture = STATE.textures[glyph_id]
 
-        rl.set_shader_value_v(shader, polylines_location, all_polylines, rl.ShaderUniformDataType.SHADER_UNIFORM_VEC2, len(all_polylines))
+            rl.begin_shader_mode(shader)
 
-        texture = STATE.textures[glyph_id]
-        rl.draw_texture(texture, int(gb.x), int(gb.y), rl.WHITE)
+            rl.draw_texture(texture, int(gb.x), int(gb.y), rl.WHITE)
 
-        rl.end_shader_mode()
+            rl.end_shader_mode()
                         
         # draw the outline
         if STATE.draw_outline:

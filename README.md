@@ -17,7 +17,7 @@ python main.py
 ## todo??
 
 - [ ] Incorporate the metrics properly
-- [ ] Antialiasing
+- [x] Antialiasing (_it's a very simple subpixel antialiasing_)
 - [ ] Blinking cursor to show the position.
   - [ ] Allow moving cursor
 - [ ] Open a file

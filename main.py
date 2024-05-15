@@ -33,17 +33,12 @@ class ProgramState:
     scaling_factor = 8
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
-    textures: list[rl.Texture] = []
     base_y: int = -1
     user_inputs: list[str] = []
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
-
-    def unload_textures(self):
-        for t in self.textures:
-            if t is not None:
-                rl.unload_texture(t)
+    texture: rl.Texture = None
 
 
 STATE = ProgramState()
@@ -266,7 +261,6 @@ def update_single_glyph(
         advance_width = advance_width // scaling_factor
         bounding_box = rl.Rectangle(1, 1, advance_width, 1)
         STATE.glyph_boundaries.append(bounding_box)
-        STATE.textures.append(None)
         STATE.outline_segments.append([])
         return bounding_box
 
@@ -291,11 +285,6 @@ def update_single_glyph(
 
     STATE.glyph_boundaries.append(bounding_box)
 
-    texture_img = rl.gen_image_color(int(bounding_box.width), int(bounding_box.height), rl.BLACK)
-    texture = rl.load_texture_from_image(texture_img)
-    rl.unload_image(texture_img)
-    STATE.textures.append(texture)
-
     return bounding_box
 
 
@@ -303,11 +292,9 @@ def update():
     # clear the lists
     STATE.outline_segments = []
     STATE.glyph_boundaries = []
-    STATE.unload_textures()
-    STATE.textures = []
 
     global_translate_x = 0
-    global_translate_y = int(rl.get_screen_height() * 0.90)
+    global_translate_y = int(rl.get_screen_height() * 0.20)
     total_width = 0
 
     for key in STATE.user_inputs:
@@ -327,7 +314,6 @@ def update():
         if rl.get_screen_width() < total_width:
             STATE.glyph_boundaries.pop(-1)
             STATE.outline_segments.pop(-1)
-            STATE.textures.pop(-1)
             total_width -= bounding_box.width
             global_translate_x = 0
             global_translate_y += int(rl.get_screen_height() * 0.20)
@@ -383,11 +369,10 @@ def render_glyph(shader):
             rl.set_shader_value(shader, count_polyline_location, len_polyline_max_count_ref, rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
             rl.set_shader_value_v(shader, polylines_location, all_polylines, rl.ShaderUniformDataType.SHADER_UNIFORM_VEC2, len(all_polylines))
 
-            texture = STATE.textures[glyph_id]
-
             rl.begin_shader_mode(shader)
 
-            rl.draw_texture(texture, int(gb.x), int(gb.y), rl.WHITE)
+            source = rl.Rectangle(0, 0, gb.width, gb.height)
+            rl.draw_texture_rec(STATE.texture, source, rl.Vector2(gb.x, gb.y), rl.WHITE)
 
             rl.end_shader_mode()
                         
@@ -412,11 +397,19 @@ if __name__ == "__main__":
     rl.set_target_fps(30)
     rl.toggle_fullscreen()
 
+    texture_img = rl.gen_image_color(rl.get_screen_width(), rl.get_screen_height(), rl.WHITE)
+    texture = rl.load_texture_from_image(texture_img)
+    rl.unload_image(texture_img)
+
+    STATE.texture = texture
+
     shader = rl.load_shader(None, "shader.frag")
 
     while not rl.window_should_close():
         grab_user_input()
         update()
         render_glyph(shader)
+
+    rl.unload_texture(STATE.texture)
 
     rl.close_window()

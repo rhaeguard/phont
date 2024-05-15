@@ -1,20 +1,27 @@
-import math
 import pyray as rl
 
-def bezier_flat_enough(p0: rl.Vector2, p1: rl.Vector2, p2: rl.Vector2) -> bool:
-    try:
-        d01 = rl.vector_2distance(p0, p1)
-        d12 = rl.vector_2distance(p1, p2)
-        d02 = rl.vector_2distance(p0, p2)
+def bezier_flat_enough(p1: rl.Vector2, control: rl.Vector2, p2: rl.Vector2) -> bool:
+    """
+    if the control point is close enough to the line, curve is considered flat.
 
-        # semi perimeter
-        sp = (d01 + d12 + d02) / 2
+    Reference: https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Line_defined_by_two_points
 
-        altitude = (2 * math.sqrt(sp * ( sp - d01 ) * (sp - d12) * (sp - d02))) / d02
-
-        return altitude <= 1
-    except Exception as e:
+    Quick explanation: 
+        - Cross product of 2 vectors gives us the parallelogram enclosed by those vectors.
+        - The distance from control point to the line is the altitude
+        - Cross_Product_Area = Line_Distance * Altitude => Altitude = Cross_Product_Area / Line_Distance
+    """
+    
+    dist = rl.vector_2distance(p1, p2)
+    if dist == 0.0:
         return True
+    
+    cross_product = abs(
+        (p2.x - p1.x)*(control.y - p1.y) - (control.x - p1.x) * (p2.y - p1.y)
+    )
+
+    altitude = cross_product / dist
+    return altitude <= 1
 
 def midpoint(a: rl.Vector2, b: rl.Vector2) -> rl.Vector2:
     s = rl.vector2_add(a, b)

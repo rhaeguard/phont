@@ -307,7 +307,7 @@ def update():
     STATE.textures = []
 
     global_translate_x = 0
-    global_translate_y = int(rl.get_screen_height() * 0.20)
+    global_translate_y = int(rl.get_screen_height() * 0.90)
     total_width = 0
 
     for key in STATE.user_inputs:

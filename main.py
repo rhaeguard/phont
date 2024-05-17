@@ -6,12 +6,16 @@ from glfw_constants import *
 from bezier import *
 
 # Open the TTF file
-font = TTFont("./assets/EBGaramond/EBGaramond-Regular.ttf")
+# font = TTFont("./assets/EBGaramond/EBGaramond-Regular.ttf")
+font = TTFont("./assets/arial.ttf")
 
 # Access the glyph table
 glyf_table = font["glyf"]
 # hmtx contains the advance width for characters that have no contour like space
 hmtx = font["hmtx"]
+
+UNIT_PER_EM = font['head'].__dict__['unitsPerEm']
+MAGIC_FACTOR = 96 / 72 # 72 point font is 1 logical inches tall; 96 is the number of dots per logical inch
 
 # close the font file
 font.close()
@@ -30,7 +34,8 @@ class ProgramState:
     draw_base_line = False
     draw_outline = not True
     draw_filled_font = True
-    scaling_factor = 8
+    font_size_in_pts = 32 # not really that robust: https://learn.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels
+    scaling_factor = 1
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[rl.Rectangle] = []
     base_y: int = -1
@@ -243,8 +248,8 @@ def update_single_glyph(
     def transform(pair: tuple[int, int]) -> rl.Vector2:
         p1x, p1y = pair
         x, y = (
-            global_translate_x + p1x // scaling_factor,
-            global_translate_y - p1y // scaling_factor,
+            global_translate_x + p1x * scaling_factor,
+            global_translate_y - p1y * scaling_factor,
         )
         return rl.Vector2(x, y)
 
@@ -258,7 +263,7 @@ def update_single_glyph(
         glyph_contours = all_contour_segments(glyph)
     else:
         advance_width, _ = hmtx_for_key
-        advance_width = advance_width // scaling_factor
+        advance_width = advance_width * scaling_factor
         bounding_box = rl.Rectangle(1, 1, advance_width, 1)
         STATE.glyph_boundaries.append(bounding_box)
         STATE.outline_segments.append([])
@@ -279,8 +284,8 @@ def update_single_glyph(
     bounding_box = rl.Rectangle(
         int(minv.x),
         int(maxv.y),
-        font_width // scaling_factor,
-        font_height // scaling_factor,
+        font_width * scaling_factor,
+        font_height * scaling_factor,
     )
 
     STATE.glyph_boundaries.append(bounding_box)
@@ -402,6 +407,7 @@ if __name__ == "__main__":
     rl.unload_image(texture_img)
 
     STATE.texture = texture
+    STATE.scaling_factor = (STATE.font_size_in_pts * MAGIC_FACTOR * rl.get_window_scale_dpi().x) / UNIT_PER_EM # assumption here is that the scaling dpi factor is constant across both dimensions
 
     shader = rl.load_shader(None, "shader.frag")
 

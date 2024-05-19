@@ -43,7 +43,7 @@ class ProgramState:
     draw_base_line = False
     draw_outline = not True
     draw_filled_font = True
-    font_size_in_pts = 96 # not really that robust: https://learn.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels
+    font_size_in_pts = 64 # not really that robust: https://learn.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels
     scaling_factor = 1
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[GlyphBoundary] = []
@@ -386,7 +386,7 @@ def render_glyph(shader):
 
             rl.begin_shader_mode(shader)
 
-            source = rl.Rectangle(0, 0, gb.width, gb.height)
+            source = rl.Rectangle(0, 0, gb.width+1, gb.height+1) # +1 because we wanna draw the bottom and right parts correctly, it clamps them if we don't add +something_positive_int
             rl.draw_texture_rec(STATE.texture, source, rl.Vector2(gb.x, gb.y), rl.WHITE)
 
             rl.end_shader_mode()
@@ -394,11 +394,11 @@ def render_glyph(shader):
         # draw the outline
         if STATE.draw_outline:
             for contour in contours:
-                for pi in range(len(contour.polylines)-1):
-                    s, e = contour.polylines[pi], contour.polylines[pi+1]
+                for pi in range(len(contour.polylines)):
+                    s, e = contour.polylines[pi], contour.polylines[(pi+1)%len(contour.polylines)]
                     rl.draw_line_v(s, e, rl.GREEN)
-                    rl.draw_circle_v(s, 2, rl.WHITE)
-                    rl.draw_circle_v(e, 2, rl.WHITE)
+                    rl.draw_circle_v(s, 0.5, rl.RED)
+                    rl.draw_circle_v(e, 0.5, rl.RED)
 
 
     if STATE.draw_base_line:

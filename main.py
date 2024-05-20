@@ -309,23 +309,33 @@ def generate_polylines(bezier_curves: list[list[rl.Vector2]]) -> list[rl.Vector2
     
     return deduped
 
+def transform(
+    pair: tuple[int, int], 
+    x_min: int, 
+    global_translate_x: float, 
+    global_translate_y: float
+) -> rl.Vector2:
+    p1x, p1y = pair
+    p1x = p1x - x_min
+    x, y = (
+        global_translate_x + p1x * STATE.scaling_factor,
+        global_translate_y - p1y * STATE.scaling_factor,
+    )
+    y += STATE.offset_y
+    return rl.Vector2(x, y)
+
 def update_single_glyph(
     key, advance_width, global_translate_x, global_translate_y
 ) -> GlyphBoundary:
-    scaling_factor = STATE.scaling_factor
-
-    def transform(pair: tuple[int, int], x_min: int) -> rl.Vector2:
-        p1x, p1y = pair
-        p1x = p1x - x_min
-        x, y = (
-            global_translate_x + p1x * scaling_factor,
-            global_translate_y - p1y * scaling_factor,
-        )
-        y += STATE.offset_y
-        return rl.Vector2(x, y)
-
     def transform_contour(contour: GlyphContour, x_min: int):
-        vs = list(map(lambda segment: list(map(lambda s: transform(s, x_min), segment)), contour.segments))
+        vs = list(
+            map(
+                lambda segment: list(
+                    map(lambda s: transform(s, x_min, global_translate_x, global_translate_y), segment)
+                ), 
+                contour.segments
+            )
+        )
         contour.polylines = generate_polylines(vs)
     
     if key not in GLYPH_CONTOUR_CACHE:
@@ -346,14 +356,14 @@ def update_single_glyph(
 
     STATE.outline_segments.append(glyph_contours)
 
-    minv = transform((x_min, y_min), x_min)
-    maxv = transform((x_max, y_max), x_min)
+    minv = transform((x_min, y_min), x_min, global_translate_x, global_translate_y)
+    maxv = transform((x_max, y_max), x_min, global_translate_x, global_translate_y)
 
     bounding_box = GlyphBoundary(
         minv.x,
         maxv.y,
-        font_width * scaling_factor,
-        font_height * scaling_factor,
+        font_width * STATE.scaling_factor,
+        font_height * STATE.scaling_factor,
     )
 
     STATE.glyph_boundaries.append(bounding_box)
@@ -383,6 +393,28 @@ def update():
             total_width = 0
             continue
 
+
+        if key in GLYPH_CONTOUR_CACHE:
+            _, dimensions = GLYPH_CONTOUR_CACHE[key]
+            font_width, font_height, boundaries = dimensions
+            x_min, y_min, x_max, y_max = boundaries
+
+            ww = font_width * STATE.scaling_factor
+            hh = font_height * STATE.scaling_factor
+            minv = transform((x_min, y_min), x_min, global_translate_x, global_translate_y)
+            maxv = transform((x_max, y_max), x_min, global_translate_x, global_translate_y)
+
+            # clipping the glyph outside of the screen
+            # stuff above the screen
+            if maxv.y + hh < 0:
+                continue
+            
+            # stuff below the screen
+            if maxv.y > rl.get_screen_height():
+                break
+
+            # TODO: horizontal clipping
+
         hmtx_for_key = hmtx.__dict__["metrics"][key]
         
         advance_width, left_side_bearing = hmtx_for_key
@@ -390,6 +422,7 @@ def update():
         advance_width = advance_width * STATE.scaling_factor
 
         global_translate_x += left_side_bearing
+
         bounding_box = update_single_glyph(
             key, advance_width, global_translate_x, global_translate_y
         )
@@ -399,6 +432,7 @@ def update():
 
         total_width += bounding_box.em_square_width()
 
+        # word wrapping
         if rl.get_screen_width() < total_width:
             STATE.glyph_boundaries.pop(-1)
             STATE.outline_segments.pop(-1)
@@ -410,18 +444,6 @@ def update():
             bounding_box.advance_width = advance_width
             bounding_box.lsb = left_side_bearing
             total_width = bounding_box.em_square_width()
-
-        # clipping the glyph outside of the screen
-        if bounding_box.y > rl.get_screen_height():
-            STATE.glyph_boundaries.pop(-1)
-            STATE.outline_segments.pop(-1)
-            break
-
-        if bounding_box.y + bounding_box.height < 0:
-            STATE.glyph_boundaries.pop(-1)
-            STATE.outline_segments.pop(-1)
-            global_translate_x -= left_side_bearing
-            continue
 
         global_translate_x += (bounding_box.width + bounding_box.rsb)
 
@@ -489,9 +511,11 @@ def render_glyph(shader, polylines_location, count_contour_location, count_polyl
 
 def prepopulate_glyph_cache():
     inputs = []
+    # all the supported glyphs
     for _, v in CHAR_TO_GLYPH_NAME.items():
         inputs.append(v)
 
+    # add uppercase and lowercase letters
     for ch in range(65, 91):
         inputs.append(chr(ch))
         inputs.append(chr(ch+32))
@@ -513,7 +537,6 @@ if __name__ == "__main__":
 
     prepopulate_glyph_cache()
 
-    # with open("shader.frag") as file:
     with open("main.py") as file:
         for line in file:
             for ch in line:
@@ -555,8 +578,7 @@ if __name__ == "__main__":
         grab_user_input()
         update()
         render_glyph(shader, polylines_location, count_contour_location, count_polyline_location, offset_location)
-
-        print(sum(TIMES_BENCHMARK["update"]) / len(TIMES_BENCHMARK["update"]), TIMES_BENCHMARK["rendered_glyph_count"])
+        # print(sum(TIMES_BENCHMARK["update"]) / len(TIMES_BENCHMARK["update"]), TIMES_BENCHMARK["rendered_glyph_count"])
 
     rl.unload_texture(STATE.texture)
 

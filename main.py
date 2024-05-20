@@ -6,14 +6,14 @@ from glfw_constants import *
 from bezier import *
 
 # Open the TTF file
-font = TTFont("./assets/EBGaramond/EBGaramond-Regular.ttf")
+# font = TTFont("./assets/EBGaramond/EBGaramond-Regular.ttf")
+font = TTFont("./assets/Fira_Code/static/FiraCode-Regular.ttf")
 
 # Access the glyph table
 glyf_table = font["glyf"]
+
 # hmtx contains the advance width for characters that have no contour like space
 hmtx = font["hmtx"]
-
-print(font['head'].__dict__)
 
 UNIT_PER_EM = font['head'].__dict__['unitsPerEm']
 MAGIC_FACTOR = 96 / 72 # 72 point font is 1 logical inches tall; 96 is the number of dots per logical inch
@@ -28,6 +28,15 @@ class GlyphBoundary:
         self.width = width
         self.height = height
         self.rect = rl.Rectangle(x, y, width, height)
+        self.advance_width = None
+        self.lsb = None
+
+    @property
+    def rsb(self):
+        return self.advance_width - self.width - self.lsb
+
+    def em_square_width(self):
+        return self.lsb + self.width + self.rsb
 
 class GlyphContour:
     def __init__(
@@ -40,22 +49,24 @@ class GlyphContour:
 
 class ProgramState:
     draw_bounding_box = False
-    draw_base_line = False
+    draw_base_line = not False
     draw_outline = not True
     draw_filled_font = True
-    font_size_in_pts = 64 # not really that robust: https://learn.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels
+    font_size_in_pts = 16 # not really that robust: https://learn.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels
     scaling_factor = 1
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[GlyphBoundary] = []
     base_y: int = -1
-    user_inputs: list[str] = []
+    user_inputs: list[str] = [
+        # 'zero', 'period', 'zero'
+    ]
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
     texture: rl.Texture = None
 
 
-STATE = ProgramState()
+STATE = None
 
 
 def find_char_width_height(glyph_contours: list[GlyphContour]) -> tuple[int, int, list[int, int, int, int]]:
@@ -254,16 +265,17 @@ def update_single_glyph(
 ) -> GlyphBoundary:
     scaling_factor = STATE.scaling_factor
 
-    def transform(pair: tuple[int, int]) -> rl.Vector2:
+    def transform(pair: tuple[int, int], x_min: int) -> rl.Vector2:
         p1x, p1y = pair
+        p1x = p1x - x_min
         x, y = (
             global_translate_x + p1x * scaling_factor,
             global_translate_y - p1y * scaling_factor,
         )
         return rl.Vector2(x, y)
 
-    def transform_contour(contour: GlyphContour):
-        vs = list(map(lambda segment: list(map(transform, segment)), contour.segments))
+    def transform_contour(contour: GlyphContour, x_min: int):
+        vs = list(map(lambda segment: list(map(lambda s: transform(s, x_min), segment)), contour.segments))
         contour.polylines = generate_polylines(vs)
 
     if "components" in glyph:
@@ -271,23 +283,21 @@ def update_single_glyph(
     elif "coordinates" in glyph:
         glyph_contours = all_contour_segments(glyph)
     else:
-        advance_width = advance_width * scaling_factor
         bounding_box = GlyphBoundary(1, 1, advance_width, 1)
         STATE.glyph_boundaries.append(bounding_box)
         STATE.outline_segments.append([])
         return bounding_box
 
     font_width, font_height, boundaries = find_char_width_height(glyph_contours)
+    x_min, y_min, x_max, y_max = boundaries
 
     for contour in glyph_contours:
-        transform_contour(contour)
+        transform_contour(contour, x_min)
 
     STATE.outline_segments.append(glyph_contours)
 
-    x_min, y_min, x_max, y_max = boundaries
-
-    minv = transform((x_min, y_min))
-    maxv = transform((x_max, y_max))
+    minv = transform((x_min, y_min), x_min)
+    maxv = transform((x_max, y_max), x_min)
 
     bounding_box = GlyphBoundary(
         minv.x,
@@ -313,31 +323,40 @@ def update():
     for key in STATE.user_inputs:
         if key == "phont_newline":
             global_translate_x = 0
-            global_translate_y += int(rl.get_screen_height() * 0.20)
+            global_translate_y += int(rl.get_screen_height() * 0.10)
             total_width = 0
             continue
 
         glyph = glyf_table[key].__dict__
         hmtx_for_key = hmtx.__dict__["metrics"][key]
+        
         advance_width, left_side_bearing = hmtx_for_key
-        global_translate_x += left_side_bearing * STATE.scaling_factor
+        left_side_bearing = left_side_bearing * STATE.scaling_factor
+        advance_width = advance_width * STATE.scaling_factor
+
+        global_translate_x += left_side_bearing
         bounding_box = update_single_glyph(
             glyph, advance_width, global_translate_x, global_translate_y
         )
-        total_width += (left_side_bearing * STATE.scaling_factor + bounding_box.width)
+        
+        bounding_box.advance_width = advance_width
+        bounding_box.lsb = left_side_bearing
+
+        total_width += bounding_box.em_square_width()
 
         if rl.get_screen_width() < total_width:
             STATE.glyph_boundaries.pop(-1)
             STATE.outline_segments.pop(-1)
-            total_width -= (left_side_bearing * STATE.scaling_factor + bounding_box.width)
-            global_translate_x = left_side_bearing * STATE.scaling_factor
+            global_translate_x = left_side_bearing
             global_translate_y += int(rl.get_screen_height() * 0.20)
             bounding_box = update_single_glyph(
                 glyph, advance_width, global_translate_x, global_translate_y
             )
-            total_width = (left_side_bearing * STATE.scaling_factor + bounding_box.width)
+            bounding_box.advance_width = advance_width
+            bounding_box.lsb = left_side_bearing
+            total_width = bounding_box.em_square_width()
 
-        global_translate_x += bounding_box.width
+        global_translate_x += (bounding_box.width + bounding_box.rsb)
 
     STATE.base_y = global_translate_y
 
@@ -348,6 +367,11 @@ def render_glyph(shader):
     if STATE.draw_bounding_box:
         for gb in STATE.glyph_boundaries:
             rl.draw_rectangle_lines_ex(gb.rect, 1.0, rl.BLUE)
+            xmin = int(gb.x - gb.lsb)
+            ymin = int(gb.y)
+            rl.draw_rectangle_lines(
+                xmin, ymin, int(gb.advance_width), int(gb.height), rl.GREEN
+            )
 
     polylines_location = rl.get_shader_location(shader, "polylines")
     count_contour_location = rl.get_shader_location(shader, "count_contour")
@@ -408,6 +432,27 @@ def render_glyph(shader):
 
 
 if __name__ == "__main__":
+    STATE = ProgramState()
+
+    with open("shader.vert") as file:
+        for line in file:
+            for ch in line:
+                if ch == '\n':
+                    user_input = "phont_newline"
+                elif ch == '\t':
+                    user_input = "space"
+                elif ch == '\r':
+                    continue
+                else:
+                    if ch in CHAR_TO_GLYPH_NAME:
+                        user_input = CHAR_TO_GLYPH_NAME[ch]
+                    else:
+                        user_input = ch
+                STATE.user_inputs.append(user_input)
+
+    # print(STATE.user_inputs)
+
+    rl.set_trace_log_level(rl.TraceLogLevel.LOG_ERROR)
     rl.init_window(0, 0, "font-rendering")
     rl.set_target_fps(30)
     rl.toggle_fullscreen()

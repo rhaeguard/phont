@@ -1,4 +1,5 @@
-from typing import Any
+from typing import Any, Self, Dict
+import time
 from fontTools.ttLib import TTFont
 import pyray as rl
 from raylib import ffi
@@ -21,6 +22,14 @@ MAGIC_FACTOR = 96 / 72 # 72 point font is 1 logical inches tall; 96 is the numbe
 
 # close the font file
 font.close()
+
+TIMES = {
+    "update": [],
+    "render": [],
+    "parse": [],
+}
+
+GLYPH_CONTOUR_CACHE: Dict[str, list['GlyphContour']] = dict()
 
 class GlyphBoundary:
     def __init__(self, x: float, y: float, width: float, height: float) -> None:
@@ -46,6 +55,9 @@ class GlyphContour:
     ) -> None:
         self.segments = segments
         self.polylines: list[rl.Vector2] = []
+
+    def copy(self) -> Self:
+        return GlyphContour(self.segments)
 
 
 class ProgramState:
@@ -265,7 +277,7 @@ def generate_polylines(bezier_curves: list[list[rl.Vector2]]) -> list[rl.Vector2
     return deduped
 
 def update_single_glyph(
-    glyph, advance_width, global_translate_x, global_translate_y
+    key, glyph, advance_width, global_translate_x, global_translate_y
 ) -> GlyphBoundary:
     scaling_factor = STATE.scaling_factor
 
@@ -283,15 +295,19 @@ def update_single_glyph(
         vs = list(map(lambda segment: list(map(lambda s: transform(s, x_min), segment)), contour.segments))
         contour.polylines = generate_polylines(vs)
 
-    if "components" in glyph:
-        glyph_contours = handle_compound_glyphs(glyph)
-    elif "coordinates" in glyph:
-        glyph_contours = all_contour_segments(glyph)
+    if key in GLYPH_CONTOUR_CACHE:
+        glyph_contours = [c.copy() for c in GLYPH_CONTOUR_CACHE[key]]
     else:
-        bounding_box = GlyphBoundary(1, 1, advance_width, 1)
-        STATE.glyph_boundaries.append(bounding_box)
-        STATE.outline_segments.append([])
-        return bounding_box
+        if "components" in glyph:
+            glyph_contours = handle_compound_glyphs(glyph)
+        elif "coordinates" in glyph:
+            glyph_contours = all_contour_segments(glyph)
+        else:
+            bounding_box = GlyphBoundary(1, 1, advance_width, 1)
+            STATE.glyph_boundaries.append(bounding_box)
+            STATE.outline_segments.append([])
+            return bounding_box
+        GLYPH_CONTOUR_CACHE[key] = glyph_contours
 
     font_width, font_height, boundaries = find_char_width_height(glyph_contours)
     x_min, y_min, x_max, y_max = boundaries
@@ -317,6 +333,7 @@ def update_single_glyph(
 
 
 def update():
+    TIME_START = time.monotonic()
     # clear the lists
     STATE.outline_segments = []
     STATE.glyph_boundaries = []
@@ -342,7 +359,7 @@ def update():
 
         global_translate_x += left_side_bearing
         bounding_box = update_single_glyph(
-            glyph, advance_width, global_translate_x, global_translate_y
+            key, glyph, advance_width, global_translate_x, global_translate_y
         )
         
         bounding_box.advance_width = advance_width
@@ -356,7 +373,7 @@ def update():
             global_translate_x = left_side_bearing
             global_translate_y += int(rl.get_screen_height() * 0.20)
             bounding_box = update_single_glyph(
-                glyph, advance_width, global_translate_x, global_translate_y
+                key, glyph, advance_width, global_translate_x, global_translate_y
             )
             bounding_box.advance_width = advance_width
             bounding_box.lsb = left_side_bearing
@@ -365,6 +382,8 @@ def update():
         global_translate_x += (bounding_box.width + bounding_box.rsb)
 
     STATE.base_y = global_translate_y
+    diff = time.monotonic() - TIME_START
+    TIMES["update"].append(diff)
 
 def render_glyph(shader):
     rl.begin_drawing()
@@ -475,6 +494,7 @@ if __name__ == "__main__":
         grab_user_input()
         update()
         render_glyph(shader)
+        print(sum(TIMES["update"]) / len(TIMES["update"]))
 
     rl.unload_texture(STATE.texture)
 

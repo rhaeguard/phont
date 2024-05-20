@@ -2,7 +2,6 @@
 
 uniform vec2 pixelCoord;
 
-void main()
-{
+void main() {
     gl_Position = vec4(pixelCoord, 0.0, 0.0);
 }

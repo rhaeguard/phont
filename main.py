@@ -58,14 +58,14 @@ class ProgramState:
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[GlyphBoundary] = []
     base_y: int = -1
-    user_inputs: list[str] = [
-        # 'zero', 'period', 'zero'
-    ]
+    user_inputs: list[str] = []
     text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
     texture: rl.Texture = None
     line_spacing: float = None
+    mouse_wheel_move: float = 0.0
+    offset_y: float = 0.0
 
 
 STATE = None
@@ -198,6 +198,8 @@ def all_contour_segments(glyph: dict[str, Any]) -> list[GlyphContour]:
 
 
 def grab_user_input():
+    STATE.mouse_wheel_move = rl.get_mouse_wheel_move()
+
     while (keycode := rl.get_key_pressed()) != 0:
         if keycode == GLFW_KEY_BACKSPACE:
             # it's backspace
@@ -274,6 +276,7 @@ def update_single_glyph(
             global_translate_x + p1x * scaling_factor,
             global_translate_y - p1y * scaling_factor,
         )
+        y -= STATE.offset_y
         return rl.Vector2(x, y)
 
     def transform_contour(contour: GlyphContour, x_min: int):
@@ -319,8 +322,8 @@ def update():
     STATE.glyph_boundaries = []
 
     global_translate_x = 0
-
     global_translate_y = STATE.line_spacing
+    STATE.offset_y -= STATE.mouse_wheel_move * 4
     total_width = 0
 
     for key in STATE.user_inputs:

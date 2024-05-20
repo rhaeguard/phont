@@ -1,4 +1,5 @@
 from typing import Any, Self, Dict
+import time
 from fontTools.ttLib import TTFont
 import pyray as rl
 from raylib import ffi
@@ -23,6 +24,11 @@ MAGIC_FACTOR = 96 / 72 # 72 point font is 1 logical inches tall; 96 is the numbe
 font.close()
 
 GLYPH_CONTOUR_CACHE: Dict[str, list['GlyphContour']] = dict()
+
+TIMES_BENCHMARK = {
+    "update": [],
+    "rendered_glyph_count": (0, 0)
+}
 
 class GlyphBoundary:
     def __init__(self, x: float, y: float, width: float, height: float) -> None:
@@ -88,7 +94,7 @@ class ProgramState:
     # draw flags
     draw_bounding_box = False
     draw_base_line = False
-    draw_outline = not True
+    draw_outline = False
     draw_filled_font = True
 
     # glyph content related
@@ -359,6 +365,7 @@ def update_single_glyph(
 
 
 def update():
+    TIME_START_BENCH = time.monotonic()
     # clear the lists
     STATE.outline_segments = []
     STATE.glyph_boundaries = []
@@ -400,7 +407,7 @@ def update():
             STATE.glyph_boundaries.pop(-1)
             STATE.outline_segments.pop(-1)
             global_translate_x = left_side_bearing
-            global_translate_y += int(rl.get_screen_height() * 0.20)
+            global_translate_y += STATE.line_spacing
             bounding_box = update_single_glyph(
                 key, glyph, advance_width, global_translate_x, global_translate_y
             )
@@ -408,26 +415,34 @@ def update():
             bounding_box.lsb = left_side_bearing
             total_width = bounding_box.em_square_width()
 
+        # clipping the glyph outside of the screen
+        if bounding_box.y > rl.get_screen_height():
+            STATE.glyph_boundaries.pop(-1)
+            STATE.outline_segments.pop(-1)
+            break
+
+        if bounding_box.y + bounding_box.height < 0:
+            STATE.glyph_boundaries.pop(-1)
+            STATE.outline_segments.pop(-1)
+            global_translate_x -= left_side_bearing
+            continue
+
         global_translate_x += (bounding_box.width + bounding_box.rsb)
 
-    STATE.text_height = global_translate_y * 1.1 # this is to have some whitespace at the bottom
-
-    # clipping by the y-coord
-    # if the bounding box is beyond these borders, we skip
-    gi = len(STATE.glyph_boundaries) - 1
-    while gi >= 0:
-        gb: GlyphBoundary = STATE.glyph_boundaries[gi]
-        if gb.y > rl.get_screen_height() or (gb.y + gb.height < 0):
-            STATE.glyph_boundaries.pop(gi)
-            STATE.outline_segments.pop(gi)
-        gi -= 1
+    STATE.text_height = (STATE.user_inputs.count("phont_newline") + 1) * STATE.line_spacing * 1.2 # * 1.2 # this is to have some whitespace at the bottom
+    total_glyph_count = len(STATE.glyph_boundaries)
 
     for glyph_id, contours in enumerate(STATE.outline_segments):
-        gb = STATE.glyph_boundaries[glyph_id]
+        gb: GlyphBoundary = STATE.glyph_boundaries[glyph_id]
         if STATE.draw_filled_font:
             gb.calculate_shader_properties(contours)
 
     STATE.base_y = global_translate_y
+
+    TIMES_BENCHMARK["update"].append(
+        time.monotonic() - TIME_START_BENCH
+    )
+    TIMES_BENCHMARK["rendered_glyph_count"] = (len(STATE.glyph_boundaries), total_glyph_count)
 
 def render_glyph(shader, polylines_location, count_contour_location, count_polyline_location, offset_location):
     rl.begin_drawing()
@@ -521,6 +536,8 @@ if __name__ == "__main__":
         grab_user_input()
         update()
         render_glyph(shader, polylines_location, count_contour_location, count_polyline_location, offset_location)
+
+        print(sum(TIMES_BENCHMARK["update"]) / len(TIMES_BENCHMARK["update"]), TIMES_BENCHMARK["rendered_glyph_count"])
 
     rl.unload_texture(STATE.texture)
 

@@ -15,6 +15,7 @@ glyf_table = font["glyf"]
 # hmtx contains the advance width for characters that have no contour like space
 hmtx = font["hmtx"]
 
+ASCENT = font['hhea'].__dict__['ascent']
 UNIT_PER_EM = font['head'].__dict__['unitsPerEm']
 MAGIC_FACTOR = 96 / 72 # 72 point font is 1 logical inches tall; 96 is the number of dots per logical inch
 
@@ -49,10 +50,10 @@ class GlyphContour:
 
 class ProgramState:
     draw_bounding_box = False
-    draw_base_line = not False
+    draw_base_line = False
     draw_outline = not True
     draw_filled_font = True
-    font_size_in_pts = 16 # not really that robust: https://learn.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels
+    font_size_in_pts = 12 # not really that robust: https://learn.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels
     scaling_factor = 1
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list[GlyphBoundary] = []
@@ -64,6 +65,7 @@ class ProgramState:
     shift_pressed: bool = False
     caps_lock_on: bool = False
     texture: rl.Texture = None
+    line_spacing: float = None
 
 
 STATE = None
@@ -317,13 +319,14 @@ def update():
     STATE.glyph_boundaries = []
 
     global_translate_x = 0
-    global_translate_y = int(rl.get_screen_height() * 0.20)
+
+    global_translate_y = STATE.line_spacing
     total_width = 0
 
     for key in STATE.user_inputs:
         if key == "phont_newline":
             global_translate_x = 0
-            global_translate_y += int(rl.get_screen_height() * 0.10)
+            global_translate_y += STATE.line_spacing
             total_width = 0
             continue
 
@@ -434,7 +437,7 @@ def render_glyph(shader):
 if __name__ == "__main__":
     STATE = ProgramState()
 
-    with open("shader.vert") as file:
+    with open("shader.frag") as file:
         for line in file:
             for ch in line:
                 if ch == '\n':
@@ -450,8 +453,6 @@ if __name__ == "__main__":
                         user_input = ch
                 STATE.user_inputs.append(user_input)
 
-    # print(STATE.user_inputs)
-
     rl.set_trace_log_level(rl.TraceLogLevel.LOG_ERROR)
     rl.init_window(0, 0, "font-rendering")
     rl.set_target_fps(30)
@@ -463,6 +464,7 @@ if __name__ == "__main__":
 
     STATE.texture = texture
     STATE.scaling_factor = (STATE.font_size_in_pts * MAGIC_FACTOR * rl.get_window_scale_dpi().x) / UNIT_PER_EM # assumption here is that the scaling dpi factor is constant across both dimensions
+    STATE.line_spacing = ASCENT * STATE.scaling_factor * 1.2
 
     shader = rl.load_shader(None, "shader.frag")
 

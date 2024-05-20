@@ -1,6 +1,6 @@
 # phont
 
-A very basic True-Type Font rendering. Currently, the code is capable of rendering the outline of a glyph and fill the outline (for the most part). Uses GPU to fill the fonts.
+A very basic True-Type Font rendering.
 
 https://github.com/rhaeguard/phont/assets/23038785/0a89fede-0c71-4ccb-94cf-748a33762784
 
@@ -14,7 +14,7 @@ python main.py
 
 ## todo??
 
-- [ ] Incorporate the metrics properly
+- [x] Incorporate the metrics properly
 - [x] Antialiasing (_it's a very simple subpixel antialiasing_)
 - [ ] Blinking cursor to show the position.
   - [ ] Allow moving cursor
@@ -27,4 +27,5 @@ python main.py
 
 I do not own any of the fonts used in this repository. All the fonts are used for experimentation purposes and no commercial use.
 
-- [EB-Garamond](https://github.com/georgd/EB-Garamond)
+- [EB Garamond](https://github.com/georgd/EB-Garamond)
+- [Fira Code](https://github.com/tonsky/FiraCode)

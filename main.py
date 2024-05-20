@@ -1,5 +1,4 @@
 from typing import Any, Self, Dict
-import time
 from fontTools.ttLib import TTFont
 import pyray as rl
 from raylib import ffi
@@ -22,12 +21,6 @@ MAGIC_FACTOR = 96 / 72 # 72 point font is 1 logical inches tall; 96 is the numbe
 
 # close the font file
 font.close()
-
-TIMES = {
-    "update": [],
-    "render": [],
-    "parse": [],
-}
 
 GLYPH_CONTOUR_CACHE: Dict[str, list['GlyphContour']] = dict()
 
@@ -92,23 +85,34 @@ class GlyphContour:
 
 
 class ProgramState:
+    # draw flags
     draw_bounding_box = False
     draw_base_line = False
     draw_outline = not True
     draw_filled_font = True
-    font_size_in_pts = 16 # not really that robust: https://learn.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels
-    scaling_factor = 1
+
+    # glyph content related
     outline_segments: list[list[GlyphContour]] = []
     glyph_boundaries: list['GlyphBoundary'] = []
+
+    # sizing and alignment
+    font_size_in_pts = 16 # not really that robust: https://learn.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels
+    scaling_factor = 1
+    line_spacing: float = None
     base_y: int = -1
+    offset_y: float = 0.0
+    # screen border info, related to scrolling
+    border_top_y: float = 0.0
+    text_height: float = None
+    
+    # user input
     user_inputs: list[str] = []
-    text_centered: bool = False
     shift_pressed: bool = False
     caps_lock_on: bool = False
-    texture: rl.Texture = None
-    line_spacing: float = None
     mouse_wheel_move: float = 0.0
-    offset_y: float = 0.0
+
+    # misc
+    texture: rl.Texture = None
 
 
 STATE = None
@@ -242,6 +246,8 @@ def all_contour_segments(glyph: dict[str, Any]) -> list[GlyphContour]:
 
 def grab_user_input():
     STATE.mouse_wheel_move = rl.get_mouse_wheel_move()
+    # if STATE.mouse_wheel_move != 0:
+    #     print(STATE.mouse_wheel_move)
 
     while (keycode := rl.get_key_pressed()) != 0:
         if keycode == GLFW_KEY_BACKSPACE:
@@ -273,17 +279,6 @@ def grab_user_input():
 
             if keycode not in NON_DRAWABLE_KEYS:
                 STATE.user_inputs.append(chr(keycode))
-
-
-def should_skip_segment(data: list[rl.Vector2], pixel: rl.Vector2) -> bool:
-    y_min = data[0].y
-    y_max = data[0].y
-    x_max = data[0].x
-    for v in data:
-        y_min = min(y_min, v.y)
-        y_max = max(y_max, v.y)
-        x_max = max(x_max, v.x)
-    return y_min > pixel.y or y_max < pixel.y or x_max < pixel.x
 
 def generate_polylines(bezier_curves: list[list[rl.Vector2]]) -> list[rl.Vector2]:
     polygon_vertices: list[rl.Vector2] = []
@@ -319,7 +314,7 @@ def update_single_glyph(
             global_translate_x + p1x * scaling_factor,
             global_translate_y - p1y * scaling_factor,
         )
-        y -= STATE.offset_y
+        y += STATE.offset_y
         return rl.Vector2(x, y)
 
     def transform_contour(contour: GlyphContour, x_min: int):
@@ -364,14 +359,17 @@ def update_single_glyph(
 
 
 def update():
-    TIME_START = time.monotonic()
     # clear the lists
     STATE.outline_segments = []
     STATE.glyph_boundaries = []
 
     global_translate_x = 0
     global_translate_y = STATE.line_spacing
-    STATE.offset_y -= STATE.mouse_wheel_move * 100 * rl.get_frame_time() #TODO: play around with the scroll speed
+
+    min_y_allowed = float(rl.get_screen_height()) - STATE.text_height
+    STATE.offset_y += STATE.mouse_wheel_move * 400 * rl.get_frame_time() #TODO: play around with the scroll speed
+    STATE.offset_y = rl.clamp(STATE.offset_y, min_y_allowed, 0.0)
+
     total_width = 0
 
     for key in STATE.user_inputs:
@@ -412,6 +410,8 @@ def update():
 
         global_translate_x += (bounding_box.width + bounding_box.rsb)
 
+    STATE.text_height = global_translate_y * 1.1 # this is to have some whitespace at the bottom
+
     # clipping by the y-coord
     # if the bounding box is beyond these borders, we skip
     gi = len(STATE.glyph_boundaries) - 1
@@ -428,9 +428,6 @@ def update():
             gb.calculate_shader_properties(contours)
 
     STATE.base_y = global_translate_y
-
-    diff = time.monotonic() - TIME_START
-    TIMES["update"].append(diff)
 
 def render_glyph(shader, polylines_location, count_contour_location, count_polyline_location, offset_location):
     rl.begin_drawing()
@@ -512,6 +509,7 @@ if __name__ == "__main__":
     STATE.texture = texture
     STATE.scaling_factor = (STATE.font_size_in_pts * MAGIC_FACTOR * rl.get_window_scale_dpi().x) / UNIT_PER_EM # assumption here is that the scaling dpi factor is constant across both dimensions
     STATE.line_spacing = ASCENT * STATE.scaling_factor * 1.2
+    STATE.text_height = float(rl.get_screen_height())
 
     shader = rl.load_shader(None, "shader.frag")
     polylines_location = rl.get_shader_location(shader, "polylines")

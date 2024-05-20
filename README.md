@@ -2,9 +2,7 @@
 
 A very basic True-Type Font rendering. Currently, the code is capable of rendering the outline of a glyph and fill the outline (for the most part). Uses GPU to fill the fonts.
 
-<p align="center">
-  <img src="./assets/phont_screenshot.png" width=700 />
-</p>
+https://github.com/rhaeguard/phont/assets/23038785/0a89fede-0c71-4ccb-94cf-748a33762784
 
 ## setup
 

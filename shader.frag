@@ -6,6 +6,7 @@ in vec2 fragTexCoord;
 
 uniform sampler2D texture0;
 
+uniform vec3 color;
 uniform vec2 offset;
 uniform vec2 polylines[MAX_POLYLINE_COUNT*MAX_POLYLINE_COUNT]; // each contour has a set of polylines
 uniform int count_contour;
@@ -68,5 +69,5 @@ void main()
         }
     }
 
-    finalColor = vec4(1.0, 1.0, 1.0, alpha);
+    finalColor = vec4(color, alpha);
 }

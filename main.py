@@ -3,6 +3,9 @@ import time
 from fontTools.ttLib import TTFont
 import pyray as rl
 from raylib import ffi
+import pygments as pyg
+from pygments.token import _TokenType
+from pygments.styles import get_style_by_name
 from glfw_constants import *
 from bezier import *
 
@@ -32,6 +35,47 @@ TIMES_BENCHMARK = {
     "rendered_glyph_count": (0, 0)
 }
 
+#### style start
+STYLES: Dict[str, rl.Vector3] = {} #optional Vec3, can be None
+for token_type, style in get_style_by_name('github-dark').styles.items():
+    token_type = repr(token_type)
+    if len(style) == 0:
+        STYLES[token_type] = None
+        continue
+    
+    for piece in style.split():
+        if piece.startswith("#"):
+            hex_color = piece[1:]
+            break
+    else:
+        STYLES[token_type] = None
+        continue
+    
+    if len(hex_color) == 3:
+        r = int(hex_color[0]*2, 16) / 255
+        g = int(hex_color[1]*2, 16) / 255
+        b = int(hex_color[2]*2, 16) / 255
+        STYLES[token_type] = rl.Vector3(r, g, b)
+    else:
+        r = int(hex_color[0:2], 16) / 255
+        g = int(hex_color[2:4], 16) / 255
+        b = int(hex_color[4:6], 16) / 255
+        STYLES[token_type] = rl.Vector3(r, g, b)
+
+for token_type, color in STYLES.items():
+    if color:
+        continue
+    
+    pieces = token_type.split(".")[:-1]
+    size = len(pieces)
+    while size > 0:
+        token_type_str = ".".join(pieces[:size])
+        if STYLES[token_type_str]:
+            STYLES[token_type] = STYLES[token_type_str]
+            break
+        size -= 1
+##### end
+
 class GlyphBoundary:
     def __init__(self, x: float, y: float, width: float, height: float) -> None:
         self.x = x
@@ -41,6 +85,7 @@ class GlyphBoundary:
         self.rect = rl.Rectangle(x, y, width, height)
         self.advance_width = None
         self.lsb = None
+        self.color = rl.Vector3(1.0, 1.0, 1.0)
 
     @property
     def rsb(self):
@@ -72,6 +117,7 @@ class GlyphBoundary:
                 all_polylines[i] = p
                 i+=1
 
+        self.color = self.color # just for the sake of completeness
         self.offset = rl.Vector2(int(self.x), int(self.y))
         self.count_contour = len_contours_ref
         self.count_polyline = len_polyline_max_count_ref
@@ -114,7 +160,7 @@ class ProgramState:
     text_height: float = None
     
     # user input
-    user_inputs: list[str] = []
+    user_inputs: list[tuple[str, _TokenType]] = []
     shift_pressed: bool = False
     caps_lock_on: bool = False
     mouse_wheel_move: float = 0.0
@@ -381,12 +427,12 @@ def update():
     global_translate_y = STATE.line_spacing
 
     min_y_allowed = float(rl.get_screen_height()) - STATE.text_height
-    STATE.offset_y += STATE.mouse_wheel_move * 400 * rl.get_frame_time() #TODO: play around with the scroll speed
+    STATE.offset_y += STATE.mouse_wheel_move * 200 * rl.get_frame_time() #TODO: play around with the scroll speed
     STATE.offset_y = rl.clamp(STATE.offset_y, min_y_allowed, 0.0)
 
     total_width = 0
 
-    for key in STATE.user_inputs:
+    for key, tokenType in STATE.user_inputs:
         if key == "phont_newline":
             global_translate_x = 0
             global_translate_y += STATE.line_spacing
@@ -444,10 +490,19 @@ def update():
             bounding_box.advance_width = advance_width
             bounding_box.lsb = left_side_bearing
             total_width = bounding_box.em_square_width()
-
+        
         global_translate_x += (bounding_box.width + bounding_box.rsb)
+        
+        # setting color
+        if STYLES[repr(tokenType)]:
+            bounding_box.color = STYLES[repr(tokenType)]
 
-    STATE.text_height = (STATE.user_inputs.count("phont_newline") + 1) * STATE.line_spacing * 1.2 # * 1.2 # this is to have some whitespace at the bottom
+
+    count = 1
+    for key, _ in STATE.user_inputs:
+        if key == "phont_newline":
+            count += 1
+    STATE.text_height = count * STATE.line_spacing * 1.2 # * 1.2 # this is to have some whitespace at the bottom
 
     for glyph_id, contours in enumerate(STATE.outline_segments):
         gb: GlyphBoundary = STATE.glyph_boundaries[glyph_id]
@@ -461,7 +516,7 @@ def update():
     )
     TIMES_BENCHMARK["rendered_glyph_count"] = (len(STATE.glyph_boundaries))
 
-def render_glyph(shader, polylines_location, count_contour_location, count_polyline_location, offset_location):
+def render_glyph(shader, polylines_location, count_contour_location, count_polyline_location, offset_location, color_location):
     rl.begin_drawing()
     rl.clear_background(rl.BLACK)
 
@@ -482,6 +537,7 @@ def render_glyph(shader, polylines_location, count_contour_location, count_polyl
                 continue
 
             rl.set_shader_value(shader, offset_location, gb.offset, rl.ShaderUniformDataType.SHADER_UNIFORM_VEC2)
+            rl.set_shader_value(shader, color_location, gb.color, rl.ShaderUniformDataType.SHADER_UNIFORM_VEC3)
             rl.set_shader_value(shader, count_contour_location, gb.count_contour, rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
             rl.set_shader_value(shader, count_polyline_location, gb.count_polyline, rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
             rl.set_shader_value_v(shader, polylines_location, gb.polylines, rl.ShaderUniformDataType.SHADER_UNIFORM_VEC2, gb.polylines_length)
@@ -536,10 +592,11 @@ if __name__ == "__main__":
     STATE = ProgramState()
 
     prepopulate_glyph_cache()
-
+    from pygments.lexers import PythonLexer
     with open("main.py") as file:
-        for line in file:
-            for ch in line:
+        lines = file.readlines()
+        for token_type, tokenValue in pyg.lex("".join(lines), PythonLexer()):
+            for ch in tokenValue:
                 if ch == '\n':
                     user_input = "phont_newline"
                 elif ch == '\t':
@@ -551,8 +608,8 @@ if __name__ == "__main__":
                         user_input = CHAR_TO_GLYPH_NAME[ch]
                     else:
                         user_input = ch
-                STATE.user_inputs.append(user_input)
-
+                STATE.user_inputs.append((user_input, token_type))
+    
     rl.set_trace_log_level(rl.TraceLogLevel.LOG_ERROR)
     rl.set_config_flags(rl.ConfigFlags.FLAG_VSYNC_HINT)
     rl.init_window(0, 0, "font-rendering")
@@ -573,12 +630,13 @@ if __name__ == "__main__":
     count_contour_location = rl.get_shader_location(shader, "count_contour")
     count_polyline_location = rl.get_shader_location(shader, "count_polyline")
     offset_location = rl.get_shader_location(shader, "offset")
+    color_location = rl.get_shader_location(shader, "color")
 
     while not rl.window_should_close():
         grab_user_input()
         update()
-        render_glyph(shader, polylines_location, count_contour_location, count_polyline_location, offset_location)
-        # print(sum(TIMES_BENCHMARK["update"]) / len(TIMES_BENCHMARK["update"]), TIMES_BENCHMARK["rendered_glyph_count"])
+        render_glyph(shader, polylines_location, count_contour_location, count_polyline_location, offset_location, color_location)
+        print(sum(TIMES_BENCHMARK["update"]) / len(TIMES_BENCHMARK["update"]), TIMES_BENCHMARK["rendered_glyph_count"])
 
     rl.unload_texture(STATE.texture)
 

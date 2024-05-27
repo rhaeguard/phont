@@ -24,8 +24,10 @@ def bezier_flat_enough(p1: rl.Vector2, control: rl.Vector2, p2: rl.Vector2) -> b
     return altitude <= 1
 
 def midpoint(a: rl.Vector2, b: rl.Vector2) -> rl.Vector2:
-    s = rl.vector2_add(a, b)
-    return rl.vector2_scale(s, 0.5)
+    return rl.Vector2(
+        (a.x + b.x) / 2,
+        (a.y + b.y) / 2
+    )
 
 def produce_bezier_lines(
     p0: rl.Vector2,

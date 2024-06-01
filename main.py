@@ -1,7 +1,5 @@
 from typing import Any, Self, Dict
 import time
-from threading import Thread, get_native_id
-from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from fontTools.ttLib import TTFont
 import pyray as rl
@@ -386,6 +384,7 @@ def update_single_glyph(
     advance_width, global_translate_x, global_translate_y
 ) -> GlyphBoundary:
     if cached_result is None:
+        # it's a space
         bounding_box = GlyphBoundary(1, 1, advance_width, 1, [])
         return bounding_box
     
@@ -403,18 +402,16 @@ def update_single_glyph(
             v = transform_translate(point, x_min, global_translate_x, global_translate_y)
             contour.polylines.append(v)
 
-    minx, miny = transform(x_min, y_min, x_min, global_translate_x, global_translate_y)
-    maxx, maxy = transform(x_max, y_max, x_min, global_translate_x, global_translate_y)
+    minx, _ = transform(x_min, y_min, x_min, global_translate_x, global_translate_y)
+    _, maxy = transform(x_max, y_max, x_min, global_translate_x, global_translate_y)
 
-    bounding_box = GlyphBoundary(
+    return GlyphBoundary(
         minx,
         maxy,
         font_width * STATE.scaling_factor,
         font_height * STATE.scaling_factor,
         glyph_contours
     )
-
-    return bounding_box
 
 
 def is_in_clipping_space(
@@ -503,7 +500,7 @@ def update():
     STATE.glyph_boundaries = []
 
     min_y_allowed = float(rl.get_screen_height()) - STATE.text_height
-    STATE.offset_y += STATE.mouse_wheel_move * 400 * rl.get_frame_time() #TODO: play around with the scroll speed
+    STATE.offset_y += STATE.mouse_wheel_move * 600 * rl.get_frame_time() #TODO: play around with the scroll speed
     STATE.offset_y = rl.clamp(STATE.offset_y, min_y_allowed, 0.0)
 
     lines = []
@@ -536,21 +533,11 @@ def update():
         STATE.glyph_boundaries.extend(future.result())
 
     STATE.text_height = (STATE.user_inputs.count("phont_newline") + 1) * STATE.line_spacing * 1.2 # * 1.2 # this is to have some whitespace at the bottom
-    # UPDATE_SHADER_PROP_BENCH = time.monotonic()
-    # if STATE.draw_filled_font:
-    #     for gb in STATE.glyph_boundaries:
-    #             gb.calculate_shader_properties()
-    
-    # TIMES_BENCHMARK["update_shader_prop"].append(
-    #     time.monotonic() - UPDATE_SHADER_PROP_BENCH
-    # )
-
-    # STATE.base_y = global_translate_y
 
     TIMES_BENCHMARK["update"].append(
         time.monotonic() - TIME_START_BENCH
     )
-    TIMES_BENCHMARK["rendered_glyph_count"] = (len(STATE.glyph_boundaries))
+    TIMES_BENCHMARK["rendered_glyph_count"] = len(STATE.glyph_boundaries)
 
 def render_glyph(shader, polylines_location, count_contour_location, count_polyline_location, offset_location):
     rl.begin_drawing()
@@ -565,8 +552,7 @@ def render_glyph(shader, polylines_location, count_contour_location, count_polyl
                 xmin, ymin, int(gb.advance_width), int(gb.height), rl.GREEN
             )
 
-    for glyph_id, gb in enumerate(STATE.glyph_boundaries):
-
+    for gb in STATE.glyph_boundaries:
         if STATE.draw_filled_font:
             if gb.skip:
                 continue
@@ -597,7 +583,6 @@ def render_glyph(shader, polylines_location, count_contour_location, count_polyl
 
     if STATE.draw_base_line:
         rl.draw_line(0, STATE.base_y, rl.get_screen_width(), STATE.base_y, rl.RED)
-    rl.draw_fps(0, 0)
     rl.end_drawing()
 
 
@@ -674,12 +659,12 @@ if __name__ == "__main__":
         grab_user_input()
         update()
         render_glyph(shader, polylines_location, count_contour_location, count_polyline_location, offset_location)
-        print(
-            round(1000 * sum(TIMES_BENCHMARK["update"]) / len(TIMES_BENCHMARK["update"]), ndigits=0) , 
+        # print(
+            # round(1000 * sum(TIMES_BENCHMARK["update"]) / len(TIMES_BENCHMARK["update"]), ndigits=0) , 
             # round(1000 * sum(TIMES_BENCHMARK["update_key_loop"]) / len(TIMES_BENCHMARK["update_key_loop"]), ndigits=0),
             # round(1000 * sum(TIMES_BENCHMARK["update_shader_prop"]) / len(TIMES_BENCHMARK["update_shader_prop"]), ndigits=0),
-            TIMES_BENCHMARK["rendered_glyph_count"]
-        )
+            # TIMES_BENCHMARK["rendered_glyph_count"]
+        # )
 
     rl.unload_texture(STATE.texture)
 

@@ -145,6 +145,8 @@ class ProgramState:
     shift_pressed: bool = False
     caps_lock_on: bool = False
     mouse_wheel_move: float = 0.0
+    page_down: bool = False
+    page_up: bool = False
 
     # misc
     texture: rl.Texture = None
@@ -292,6 +294,10 @@ def grab_user_input():
             STATE.caps_lock_on = not STATE.caps_lock_on
         elif keycode == GLFW_KEY_ENTER:
             STATE.user_inputs.append("phont_newline")
+        elif keycode == GLFW_KEY_PAGE_DOWN:
+            STATE.page_down = True
+        elif keycode == GLFW_KEY_PAGE_UP:
+            STATE.page_up = True
         else:
             STATE.shift_pressed = rl.is_key_down(GLFW_KEY_LEFT_SHIFT) or rl.is_key_down(
                 GLFW_KEY_RIGHT_SHIFT
@@ -501,7 +507,14 @@ def update():
 
     min_y_allowed = float(rl.get_screen_height()) - STATE.text_height
     STATE.offset_y += STATE.mouse_wheel_move * 600 * rl.get_frame_time() #TODO: play around with the scroll speed
+    if STATE.page_down:
+        STATE.offset_y += rl.get_frame_time() - float(rl.get_screen_height())
+        STATE.page_down = False
+    elif STATE.page_up:
+        STATE.offset_y += rl.get_frame_time() + float(rl.get_screen_height())
+        STATE.page_up = False
     STATE.offset_y = rl.clamp(STATE.offset_y, min_y_allowed, 0.0)
+
 
     lines = []
     current = []
